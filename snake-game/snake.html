@@ -216,6 +216,18 @@
       height: 14px;
     }
 
+    .hint input[type="text"] {
+      margin-left: 10px;
+      background: rgba(148,163,184,0.12);
+      border: 1px solid rgba(148,163,184,0.2);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.78rem;
+      width: 130px;
+    }
+
     .hint kbd {
       background: rgba(148,163,184,0.12);
       padding: 2px 6px;
@@ -265,7 +277,7 @@
           <span class="score-value" id="score">0</span>
         </div>
         <div class="hi-label">
-          HI <span class="hi-value" id="hiScore">0</span>
+          HI <span class="hi-value" id="hiScore">0</span> by <span class="hi-value" id="hiName">Player</span>
         </div>
       </div>
       <button id="restartBtn" type="button">Restart</button>
@@ -283,6 +295,7 @@
     <p class="hint">
       <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp; <kbd>Space</kbd> pause
       <label><input id="saveHiToggle" type="checkbox" checked /> Save HI</label>
+      <input id="playerName" type="text" maxlength="20" placeholder="Player name" />
     </p>
   </main>
 
@@ -292,14 +305,17 @@
     const ctx     = board.getContext("2d");
     const scoreEl = document.getElementById("score");
     const hiEl    = document.getElementById("hiScore");
+    const hiNameEl= document.getElementById("hiName");
     const overlay = document.getElementById("overlay");
     const finalEl = document.getElementById("finalScore");
     const wrap    = document.getElementById("canvasWrap");
     const gameWrap= document.getElementById("gameWrap");
     const saveHiToggle = document.getElementById("saveHiToggle");
+    const playerNameInput = document.getElementById("playerName");
 
     const GRID = 40;
     const TILE = board.width / GRID;
+    const APPLE_COUNT = 3;
     const BASE_STEP_MS = 1000;
     const SPEEDUP_PER_APPLE = 0.9;
     const SLOWDOWN_ON_MEDKIT = 1.15;
@@ -308,8 +324,9 @@
     const RED_CROSS_LIFETIME_MS = 10000;
     const RED_CROSS_SPAWN_CHANCE = 0.025;
     const HI_SCORE_KEY = "snake_neon_hi_score";
+    const HI_NAME_KEY = "snake_neon_hi_name";
 
-    let snake, dir, qDir, food, score, hiScore = 0;
+    let snake, dir, qDir, foods = [], score, hiScore = 0, hiName = "Player";
     let stepMs = BASE_STEP_MS;
     let loopId, paused, dead;
     let particles = [];
@@ -407,17 +424,29 @@
       return { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
     }
 
-    // Place food on an empty cell that is not occupied by snake.
-    function placeFood() {
-      let f = randCell();
-      while (snake.some(s => s.x === f.x && s.y === f.y)) f = randCell();
-      food = f;
+    // Place one apple on a free cell.
+    function placeOneFood() {
+      let tries = 0;
+      while (tries < 400) {
+        const f = randCell();
+        const overlapFood = foods.some(a => a.x === f.x && a.y === f.y);
+        if (!snake.some(s => s.x === f.x && s.y === f.y) && !overlapFood && (!medkit || medkit.x !== f.x || medkit.y !== f.y)) {
+          foods.push(f);
+          return;
+        }
+        tries++;
+      }
+    }
+
+    // Keep target number of apples active for faster gameplay.
+    function ensureFoodsCount() {
+      while (foods.length < APPLE_COUNT) placeOneFood();
     }
 
     // Check whether a cell is free of snake, food, and medkit.
     function isFreeCell(x, y) {
       if (snake.some(s => s.x === x && s.y === y)) return false;
-      if (food && food.x === x && food.y === y) return false;
+      if (foods.some(a => a.x === x && a.y === y)) return false;
       if (medkit && medkit.x === x && medkit.y === y) return false;
       return true;
     }
@@ -465,12 +494,21 @@
       const raw = localStorage.getItem(HI_SCORE_KEY);
       const n = Number(raw);
       if (Number.isFinite(n) && n >= 0) hiScore = Math.floor(n);
+      const savedName = localStorage.getItem(HI_NAME_KEY);
+      if (savedName && savedName.trim()) hiName = savedName.trim();
     }
 
     // Persist high score only when user enabled Save HI.
     function persistHiIfEnabled() {
       if (!saveHiToggle.checked) return;
       localStorage.setItem(HI_SCORE_KEY, String(hiScore));
+      localStorage.setItem(HI_NAME_KEY, hiName);
+    }
+
+    // Resolve active player name from input.
+    function currentPlayerName() {
+      const name = playerNameInput.value.trim();
+      return name ? name.slice(0, 20) : "Player";
     }
 
     /* ── Game logic ────────────────────────────────── */
@@ -485,8 +523,9 @@
       dead = false;
       particles = [];
       bounceCountdown = 0;
+      foods = [];
       medkit = null;
-      placeFood();
+      ensureFoodsCount();
       overlay.classList.remove("visible");
       updateUI();
       clearInterval(loopId);
@@ -498,9 +537,11 @@
       scoreEl.textContent = score;
       if (score > hiScore) {
         hiScore = score;
+        hiName = currentPlayerName();
         persistHiIfEnabled();
       }
       hiEl.textContent = hiScore;
+      hiNameEl.textContent = hiName;
     }
 
     function opposite(a, b) { return a.x === -b.x && a.y === -b.y; }
@@ -599,13 +640,16 @@
 
       snake.unshift(head);
 
-      if (head.x === food.x && head.y === food.y) {
+      const eatenFoodIndex = foods.findIndex(a => head.x === a.x && head.y === a.y);
+      if (eatenFoodIndex >= 0) {
+        const eaten = foods[eatenFoodIndex];
+        foods.splice(eatenFoodIndex, 1);
         score++;
-        spawnParticles(food.x, food.y, "#4ade80", 18);
-        spawnParticles(food.x, food.y, "#facc15", 12);
-        showScorePop(food.x, food.y);
+        spawnParticles(eaten.x, eaten.y, "#4ade80", 18);
+        spawnParticles(eaten.x, eaten.y, "#facc15", 12);
+        showScorePop(eaten.x, eaten.y);
         applyStepMs(stepMs * SPEEDUP_PER_APPLE);
-        placeFood();
+        ensureFoodsCount();
       } else {
         snake.pop();
       }
@@ -636,48 +680,73 @@
     // Draw pulsing apple with glow.
     function drawFood() {
       foodPulse += 0.06;
-      const pulse = 1 + Math.sin(foodPulse) * 0.15;
-      const cx = food.x * TILE + TILE / 2;
-      const cy = food.y * TILE + TILE / 2;
-      const r  = (TILE / 2 - 2) * pulse;
+      foods.forEach((apple, i) => {
+        const phase = foodPulse + i * 0.9;
+        const pulse = 1 + Math.sin(phase) * 0.15;
+        const cx = apple.x * TILE + TILE / 2;
+        const cy = apple.y * TILE + TILE / 2;
+        const r  = (TILE / 2 - 2) * pulse;
 
-      // Outer glow
-      ctx.save();
-      ctx.shadowColor = "rgba(244, 63, 94, 0.6)";
-      ctx.shadowBlur  = 18 + Math.sin(foodPulse) * 6;
-      ctx.fillStyle   = "#f43f5e";
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+        ctx.save();
+        ctx.shadowColor = "rgba(244, 63, 94, 0.6)";
+        ctx.shadowBlur  = 18 + Math.sin(phase) * 6;
+        ctx.fillStyle   = "#f43f5e";
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
 
-      // Shine highlight
-      ctx.save();
-      ctx.fillStyle = "rgba(255,255,255,0.35)";
-      ctx.beginPath();
-      ctx.arc(cx - r * 0.25, cy - r * 0.3, r * 0.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+        ctx.save();
+        ctx.fillStyle = "rgba(255,255,255,0.35)";
+        ctx.beginPath();
+        ctx.arc(cx - r * 0.25, cy - r * 0.3, r * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
     }
 
-    // Draw red cross slowdown item.
+    // Draw ambulance slowdown item.
     function drawMedkit() {
       if (!medkit) return;
-      const x = medkit.x * TILE;
-      const y = medkit.y * TILE;
-      const pad = 3;
-      const size = TILE - pad * 2;
-      const cx = x + TILE / 2;
-      const cy = y + TILE / 2;
-      const arm = size * 0.28;
-      const thick = Math.max(4, size * 0.28);
+      const x = medkit.x * TILE + 2;
+      const y = medkit.y * TILE + 4;
+      const w = TILE - 4;
+      const h = TILE - 8;
 
       ctx.save();
-      ctx.shadowColor = "rgba(248, 113, 113, 0.7)";
-      ctx.shadowBlur = 12;
+      ctx.shadowColor = "rgba(248, 113, 113, 0.45)";
+      ctx.shadowBlur = 10;
+
+      // Body + cabin
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(x, y + h * 0.2, w * 0.65, h * 0.55);
+      ctx.fillRect(x + w * 0.58, y + h * 0.32, w * 0.3, h * 0.43);
+
+      // Red stripe
       ctx.fillStyle = "#ef4444";
+      ctx.fillRect(x + w * 0.06, y + h * 0.42, w * 0.72, h * 0.14);
+
+      // Medical cross
+      ctx.fillStyle = "#dc2626";
+      const cx = x + w * 0.34;
+      const cy = y + h * 0.46;
+      const arm = Math.max(2, w * 0.08);
+      const thick = Math.max(2, w * 0.06);
       ctx.fillRect(cx - thick / 2, cy - arm, thick, arm * 2);
       ctx.fillRect(cx - arm, cy - thick / 2, arm * 2, thick);
+
+      // Window + light
+      ctx.fillStyle = "#93c5fd";
+      ctx.fillRect(x + w * 0.66, y + h * 0.37, w * 0.17, h * 0.16);
+      ctx.fillStyle = "#f87171";
+      ctx.fillRect(x + w * 0.52, y + h * 0.12, w * 0.15, h * 0.08);
+
+      // Wheels
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      ctx.arc(x + w * 0.2, y + h * 0.82, h * 0.1, 0, Math.PI * 2);
+      ctx.arc(x + w * 0.7, y + h * 0.82, h * 0.1, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
 
@@ -842,10 +911,17 @@
       if (!saveHiToggle.checked) return;
       persistHiIfEnabled();
     });
+    playerNameInput.addEventListener("change", () => {
+      hiName = currentPlayerName();
+      hiNameEl.textContent = hiName;
+      persistHiIfEnabled();
+    });
 
     /* ── Start ─────────────────────────────────────── */
     loadSavedHi();
     hiEl.textContent = hiScore;
+    hiNameEl.textContent = hiName;
+    playerNameInput.value = hiName === "Player" ? "" : hiName;
     reset();
     render();
   </script>
