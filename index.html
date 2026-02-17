@@ -182,7 +182,6 @@
       const hitVerticalWall = head.y < 0 || head.y >= gridSize;
 
       if (hitHorizontalWall || hitVerticalWall) {
-        snake.reverse();
         if (hitHorizontalWall) {
           nextDirection.x *= -1;
         }
