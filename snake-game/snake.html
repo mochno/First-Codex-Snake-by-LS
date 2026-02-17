@@ -201,6 +201,21 @@
       letter-spacing: 0.3px;
     }
 
+    .hint label {
+      margin-left: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .hint input[type="checkbox"] {
+      accent-color: #22c55e;
+      width: 14px;
+      height: 14px;
+    }
+
     .hint kbd {
       background: rgba(148,163,184,0.12);
       padding: 2px 6px;
@@ -267,6 +282,7 @@
 
     <p class="hint">
       <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp; <kbd>Space</kbd> pause
+      <label><input id="saveHiToggle" type="checkbox" checked /> Save HI</label>
     </p>
   </main>
 
@@ -280,19 +296,30 @@
     const finalEl = document.getElementById("finalScore");
     const wrap    = document.getElementById("canvasWrap");
     const gameWrap= document.getElementById("gameWrap");
+    const saveHiToggle = document.getElementById("saveHiToggle");
 
     const GRID = 40;
     const TILE = board.width / GRID;
-    const SPEED = 70;
+    const BASE_STEP_MS = 1000;
+    const SPEEDUP_PER_APPLE = 0.9;
+    const SLOWDOWN_ON_MEDKIT = 1.15;
+    const MIN_STEP_MS = 50;
+    const MAX_STEP_MS = 3000;
+    const RED_CROSS_LIFETIME_MS = 10000;
+    const RED_CROSS_SPAWN_CHANCE = 0.025;
+    const HI_SCORE_KEY = "snake_neon_hi_score";
 
     let snake, dir, qDir, food, score, hiScore = 0;
+    let stepMs = BASE_STEP_MS;
     let loopId, paused, dead;
     let particles = [];
     let foodPulse = 0;
     let animFrame;
     let bounceCountdown = 0; // steps until forced random direction change after bounce
+    let medkit = null;
 
     /* ── Particles ─────────────────────────────────── */
+    // Spawn radial particles around a board cell for hit/eat effects.
     function spawnParticles(x, y, color, count = 12) {
       for (let i = 0; i < count; i++) {
         const angle = (Math.PI * 2 / count) * i + Math.random() * 0.4;
@@ -310,6 +337,7 @@
       }
     }
 
+    // Advance particle movement and remove expired particles.
     function updateParticles() {
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
@@ -322,6 +350,7 @@
       }
     }
 
+    // Draw all active particles with glow and fade.
     function drawParticles() {
       particles.forEach(p => {
         ctx.save();
@@ -337,6 +366,7 @@
     }
 
     /* ── Floating +1 ───────────────────────────────── */
+    // Show floating "+1" text at a given board cell.
     function showScorePop(cellX, cellY) {
       const pop = document.createElement("div");
       pop.className = "score-pop";
@@ -349,48 +379,133 @@
       pop.addEventListener("animationend", () => pop.remove());
     }
 
+    // Show floating custom status text (e.g. SLOW) at a board cell.
+    function showTextPop(cellX, cellY, text, color = "#f87171") {
+      const pop = document.createElement("div");
+      pop.className = "score-pop";
+      pop.textContent = text;
+      pop.style.color = color;
+      pop.style.textShadow = `0 0 8px ${color}`;
+      const rect = board.getBoundingClientRect();
+      const scale = rect.width / board.width;
+      pop.style.left = (cellX * TILE + TILE / 2) * scale + "px";
+      pop.style.top  = (cellY * TILE) * scale + "px";
+      wrap.appendChild(pop);
+      pop.addEventListener("animationend", () => pop.remove());
+    }
+
     /* ── Screen shake ──────────────────────────────── */
+    // Trigger a short container shake for collision feedback.
     function screenShake() {
       gameWrap.classList.add("shake");
       gameWrap.addEventListener("animationend", () => gameWrap.classList.remove("shake"), { once: true });
     }
 
     /* ── Helpers ────────────────────────────────────── */
+    // Return a random board coordinate.
     function randCell() {
       return { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
     }
 
+    // Place food on an empty cell that is not occupied by snake.
     function placeFood() {
       let f = randCell();
       while (snake.some(s => s.x === f.x && s.y === f.y)) f = randCell();
       food = f;
     }
 
+    // Check whether a cell is free of snake, food, and medkit.
+    function isFreeCell(x, y) {
+      if (snake.some(s => s.x === x && s.y === y)) return false;
+      if (food && food.x === x && food.y === y) return false;
+      if (medkit && medkit.x === x && medkit.y === y) return false;
+      return true;
+    }
+
+    // Spawn the slowdown medkit on a free cell with expiration timestamp.
+    function placeMedkit() {
+      let tries = 0;
+      while (tries < 400) {
+        const c = randCell();
+        if (isFreeCell(c.x, c.y)) {
+          medkit = {
+            x: c.x,
+            y: c.y,
+            expiresAt: Date.now() + RED_CROSS_LIFETIME_MS
+          };
+          return;
+        }
+        tries++;
+      }
+      medkit = null;
+    }
+
+    // Randomly spawn medkit if one is not already active.
+    function maybeSpawnMedkit() {
+      if (medkit) return;
+      if (Math.random() < RED_CROSS_SPAWN_CHANCE) placeMedkit();
+    }
+
+    // Remove medkit when its 10-second lifetime ends.
+    function clearExpiredMedkit() {
+      if (medkit && Date.now() > medkit.expiresAt) medkit = null;
+    }
+
+    // Apply and clamp movement interval, then restart step timer.
+    function applyStepMs(nextMs) {
+      stepMs = Math.max(MIN_STEP_MS, Math.min(MAX_STEP_MS, nextMs));
+      if (!dead) {
+        clearInterval(loopId);
+        loopId = setInterval(step, stepMs);
+      }
+    }
+
+    // Load saved high score from local storage.
+    function loadSavedHi() {
+      const raw = localStorage.getItem(HI_SCORE_KEY);
+      const n = Number(raw);
+      if (Number.isFinite(n) && n >= 0) hiScore = Math.floor(n);
+    }
+
+    // Persist high score only when user enabled Save HI.
+    function persistHiIfEnabled() {
+      if (!saveHiToggle.checked) return;
+      localStorage.setItem(HI_SCORE_KEY, String(hiScore));
+    }
+
     /* ── Game logic ────────────────────────────────── */
+    // Start a new game round with base speed and fresh state.
     function reset() {
       snake = [{ x: 20, y: 20 }, { x: 19, y: 20 }, { x: 18, y: 20 }];
       dir  = { x: 1, y: 0 };
       qDir = { ...dir };
       score = 0;
+      stepMs = BASE_STEP_MS;
       paused = false;
       dead = false;
       particles = [];
       bounceCountdown = 0;
+      medkit = null;
       placeFood();
       overlay.classList.remove("visible");
       updateUI();
       clearInterval(loopId);
-      loopId = setInterval(step, SPEED);
+      loopId = setInterval(step, stepMs);
     }
 
+    // Refresh score UI and maintain high score.
     function updateUI() {
       scoreEl.textContent = score;
-      if (score > hiScore) { hiScore = score; }
+      if (score > hiScore) {
+        hiScore = score;
+        persistHiIfEnabled();
+      }
       hiEl.textContent = hiScore;
     }
 
     function opposite(a, b) { return a.x === -b.x && a.y === -b.y; }
 
+    // Queue a valid next movement direction.
     function queueDir(next) {
       if (dead || paused) return;
       if (opposite(next, dir)) return;
@@ -407,6 +522,7 @@
     function hitsSnake(x, y) { return snake.some(s => s.x === x && s.y === y); }
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
+    // Pick a random safe direction used by bounce behavior.
     function pickRandomSafeDir(fromHead) {
       const tail = snake[snake.length - 1];
       const candidates = shuffle(ALL_DIRS.filter(d => {
@@ -419,8 +535,10 @@
       return candidates.length > 0 ? candidates[0] : null;
     }
 
+    // Main game tick: movement, collisions, pickups, speed updates.
     function step() {
       if (paused || dead) return;
+      clearExpiredMedkit();
       dir = qDir;
 
       /* ── Bounce countdown: force a random turn ── */
@@ -483,16 +601,28 @@
 
       if (head.x === food.x && head.y === food.y) {
         score++;
-        spawnParticles(food.x, food.y, "#4ade80", 14);
+        spawnParticles(food.x, food.y, "#4ade80", 18);
+        spawnParticles(food.x, food.y, "#facc15", 12);
         showScorePop(food.x, food.y);
+        applyStepMs(stepMs * SPEEDUP_PER_APPLE);
         placeFood();
       } else {
         snake.pop();
       }
+
+      if (medkit && head.x === medkit.x && head.y === medkit.y) {
+        spawnParticles(medkit.x, medkit.y, "#f87171", 16);
+        showTextPop(medkit.x, medkit.y, "SLOW", "#f87171");
+        applyStepMs(stepMs * SLOWDOWN_ON_MEDKIT);
+        medkit = null;
+      }
+
+      maybeSpawnMedkit();
       updateUI();
     }
 
     /* ── Drawing ───────────────────────────────────── */
+    // Draw background grid lines.
     function drawGrid() {
       ctx.strokeStyle = "rgba(148, 163, 184, 0.05)";
       ctx.lineWidth = 1;
@@ -503,6 +633,7 @@
       }
     }
 
+    // Draw pulsing apple with glow.
     function drawFood() {
       foodPulse += 0.06;
       const pulse = 1 + Math.sin(foodPulse) * 0.15;
@@ -529,6 +660,28 @@
       ctx.restore();
     }
 
+    // Draw red cross slowdown item.
+    function drawMedkit() {
+      if (!medkit) return;
+      const x = medkit.x * TILE;
+      const y = medkit.y * TILE;
+      const pad = 3;
+      const size = TILE - pad * 2;
+      const cx = x + TILE / 2;
+      const cy = y + TILE / 2;
+      const arm = size * 0.28;
+      const thick = Math.max(4, size * 0.28);
+
+      ctx.save();
+      ctx.shadowColor = "rgba(248, 113, 113, 0.7)";
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(cx - thick / 2, cy - arm, thick, arm * 2);
+      ctx.fillRect(cx - arm, cy - thick / 2, arm * 2, thick);
+      ctx.restore();
+    }
+
+    // Draw snake body, gradients, and head details.
     function drawSnake() {
       const len = snake.length;
 
@@ -598,6 +751,7 @@
       drawEyes(snake[0], dir);
     }
 
+    // Draw eyes oriented to current movement direction.
     function drawEyes(head, d) {
       const cx = head.x * TILE + TILE / 2;
       const cy = head.y * TILE + TILE / 2;
@@ -630,6 +784,7 @@
     }
 
     /* ── Render loop ───────────────────────────────── */
+    // Animation loop: draw scene and overlays every frame.
     function render() {
       ctx.clearRect(0, 0, board.width, board.height);
 
@@ -645,6 +800,7 @@
 
       drawGrid();
       drawFood();
+      drawMedkit();
       drawSnake();
       updateParticles();
       drawParticles();
@@ -682,8 +838,14 @@
 
     document.getElementById("restartBtn").addEventListener("click", reset);
     document.getElementById("overlayRestart").addEventListener("click", reset);
+    saveHiToggle.addEventListener("change", () => {
+      if (!saveHiToggle.checked) return;
+      persistHiIfEnabled();
+    });
 
     /* ── Start ─────────────────────────────────────── */
+    loadSavedHi();
+    hiEl.textContent = hiScore;
     reset();
     render();
   </script>
