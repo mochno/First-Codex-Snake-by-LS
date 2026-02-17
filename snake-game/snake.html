@@ -313,42 +313,46 @@
     const saveHiToggle = document.getElementById("saveHiToggle");
     const playerNameInput = document.getElementById("playerName");
 
-    const GRID = 40;
+    const GRID = 20;
     const TILE = board.width / GRID;
     const APPLE_COUNT = 3;
-    const BASE_STEP_MS = 1000;
+    const APPLE_BONUS_THRESHOLD = 15;
+    const BASE_STEP_MS = 500;
     const SPEEDUP_PER_APPLE = 0.9;
     const SLOWDOWN_ON_MEDKIT = 1.15;
     const MIN_STEP_MS = 50;
     const MAX_STEP_MS = 3000;
     const RED_CROSS_LIFETIME_MS = 10000;
     const RED_CROSS_SPAWN_CHANCE = 0.025;
+    const AMBULANCE_SIZE = 2; // 2x2 cells = 4 squares
     const HI_SCORE_KEY = "snake_neon_hi_score";
     const HI_NAME_KEY = "snake_neon_hi_name";
 
     let snake, dir, qDir, foods = [], score, hiScore = 0, hiName = "Player";
+    let applesEaten = 0;
     let stepMs = BASE_STEP_MS;
     let loopId, paused, dead;
     let particles = [];
     let foodPulse = 0;
     let animFrame;
+    let flashPower = 0;
     let bounceCountdown = 0; // steps until forced random direction change after bounce
     let medkit = null;
 
     /* ── Particles ─────────────────────────────────── */
     // Spawn radial particles around a board cell for hit/eat effects.
-    function spawnParticles(x, y, color, count = 12) {
+    function spawnParticles(x, y, color, count = 12, speedScale = 1, sizeBoost = 0, decayBoost = 0) {
       for (let i = 0; i < count; i++) {
         const angle = (Math.PI * 2 / count) * i + Math.random() * 0.4;
-        const speed = 1.5 + Math.random() * 3;
+        const speed = (1.5 + Math.random() * 3) * speedScale;
         particles.push({
           x: x * TILE + TILE / 2,
           y: y * TILE + TILE / 2,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
           life: 1,
-          decay: 0.02 + Math.random() * 0.02,
-          size: 2 + Math.random() * 3,
+          decay: 0.02 + Math.random() * 0.02 + decayBoost,
+          size: 2 + Math.random() * 3 + sizeBoost,
           color
         });
       }
@@ -411,6 +415,11 @@
       pop.addEventListener("animationend", () => pop.remove());
     }
 
+    // Trigger a brief full-screen flash for stronger pickup impact.
+    function triggerFlash(amount = 0.35) {
+      flashPower = Math.min(1, flashPower + amount);
+    }
+
     /* ── Screen shake ──────────────────────────────── */
     // Trigger a short container shake for collision feedback.
     function screenShake() {
@@ -424,13 +433,19 @@
       return { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
     }
 
+    // Check whether a board cell is within the 2x2 ambulance footprint.
+    function isCellInsideMedkit(x, y) {
+      if (!medkit) return false;
+      return x >= medkit.x && x < medkit.x + AMBULANCE_SIZE && y >= medkit.y && y < medkit.y + AMBULANCE_SIZE;
+    }
+
     // Place one apple on a free cell.
     function placeOneFood() {
       let tries = 0;
       while (tries < 400) {
         const f = randCell();
         const overlapFood = foods.some(a => a.x === f.x && a.y === f.y);
-        if (!snake.some(s => s.x === f.x && s.y === f.y) && !overlapFood && (!medkit || medkit.x !== f.x || medkit.y !== f.y)) {
+        if (!snake.some(s => s.x === f.x && s.y === f.y) && !overlapFood && !isCellInsideMedkit(f.x, f.y)) {
           foods.push(f);
           return;
         }
@@ -447,7 +462,7 @@
     function isFreeCell(x, y) {
       if (snake.some(s => s.x === x && s.y === y)) return false;
       if (foods.some(a => a.x === x && a.y === y)) return false;
-      if (medkit && medkit.x === x && medkit.y === y) return false;
+      if (isCellInsideMedkit(x, y)) return false;
       return true;
     }
 
@@ -455,8 +470,16 @@
     function placeMedkit() {
       let tries = 0;
       while (tries < 400) {
-        const c = randCell();
-        if (isFreeCell(c.x, c.y)) {
+        const c = {
+          x: Math.floor(Math.random() * (GRID - AMBULANCE_SIZE + 1)),
+          y: Math.floor(Math.random() * (GRID - AMBULANCE_SIZE + 1))
+        };
+        const footprintFree =
+          isFreeCell(c.x, c.y) &&
+          isFreeCell(c.x + 1, c.y) &&
+          isFreeCell(c.x, c.y + 1) &&
+          isFreeCell(c.x + 1, c.y + 1);
+        if (footprintFree) {
           medkit = {
             x: c.x,
             y: c.y,
@@ -514,14 +537,17 @@
     /* ── Game logic ────────────────────────────────── */
     // Start a new game round with base speed and fresh state.
     function reset() {
-      snake = [{ x: 20, y: 20 }, { x: 19, y: 20 }, { x: 18, y: 20 }];
+      const c = Math.floor(GRID / 2);
+      snake = [{ x: c, y: c }, { x: c - 1, y: c }, { x: c - 2, y: c }];
       dir  = { x: 1, y: 0 };
       qDir = { ...dir };
       score = 0;
+      applesEaten = 0;
       stepMs = BASE_STEP_MS;
       paused = false;
       dead = false;
       particles = [];
+      flashPower = 0;
       bounceCountdown = 0;
       foods = [];
       medkit = null;
@@ -645,18 +671,32 @@
         const eaten = foods[eatenFoodIndex];
         foods.splice(eatenFoodIndex, 1);
         score++;
-        spawnParticles(eaten.x, eaten.y, "#4ade80", 18);
-        spawnParticles(eaten.x, eaten.y, "#facc15", 12);
+        applesEaten++;
+        spawnParticles(eaten.x, eaten.y, "#4ade80", 30, 1.7, 1.5, -0.005);
+        spawnParticles(eaten.x, eaten.y, "#facc15", 24, 2.1, 2.0, -0.004);
+        spawnParticles(eaten.x, eaten.y, "#ffffff", 10, 2.5, 1.8, -0.008);
         showScorePop(eaten.x, eaten.y);
+        triggerFlash(0.45);
         applyStepMs(stepMs * SPEEDUP_PER_APPLE);
+        if (applesEaten % APPLE_BONUS_THRESHOLD === 0) {
+          const tail = snake[snake.length - 1];
+          const bonusGrowth = Math.max(1, Math.round(snake.length * 0.1));
+          for (let i = 0; i < bonusGrowth; i++) {
+            snake.push({ x: tail.x, y: tail.y });
+          }
+          showTextPop(eaten.x, eaten.y, "+10% SIZE", "#34d399");
+        }
         ensureFoodsCount();
       } else {
         snake.pop();
       }
 
-      if (medkit && head.x === medkit.x && head.y === medkit.y) {
-        spawnParticles(medkit.x, medkit.y, "#f87171", 16);
-        showTextPop(medkit.x, medkit.y, "SLOW", "#f87171");
+      if (medkit && isCellInsideMedkit(head.x, head.y)) {
+        const mx = medkit.x + 0.5;
+        const my = medkit.y + 0.5;
+        spawnParticles(mx, my, "#f87171", 20, 1.4, 1.2, -0.004);
+        showTextPop(mx, my, "SLOW", "#f87171");
+        triggerFlash(0.22);
         applyStepMs(stepMs * SLOWDOWN_ON_MEDKIT);
         medkit = null;
       }
@@ -709,9 +749,9 @@
     function drawMedkit() {
       if (!medkit) return;
       const x = medkit.x * TILE + 2;
-      const y = medkit.y * TILE + 4;
-      const w = TILE - 4;
-      const h = TILE - 8;
+      const y = medkit.y * TILE + 2;
+      const w = TILE * AMBULANCE_SIZE - 4;
+      const h = TILE * AMBULANCE_SIZE - 4;
 
       ctx.save();
       ctx.shadowColor = "rgba(248, 113, 113, 0.45)";
@@ -873,6 +913,23 @@
       drawSnake();
       updateParticles();
       drawParticles();
+
+      if (flashPower > 0.01) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(0.5, flashPower * 0.5);
+        const flash = ctx.createRadialGradient(
+          board.width / 2, board.height / 2, board.width * 0.08,
+          board.width / 2, board.height / 2, board.width * 0.7
+        );
+        flash.addColorStop(0, "rgba(255,255,255,0.92)");
+        flash.addColorStop(1, "rgba(248,113,113,0.18)");
+        ctx.fillStyle = flash;
+        ctx.fillRect(0, 0, board.width, board.height);
+        ctx.restore();
+        flashPower *= 0.86;
+      } else {
+        flashPower = 0;
+      }
 
       // Pause text
       if (paused && !dead) {
