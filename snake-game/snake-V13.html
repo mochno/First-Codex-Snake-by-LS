@@ -328,7 +328,7 @@
     const APPLE_SPAWN_INTERVAL_MS = 5000;
     const BOUNCE_RANDOM_TURN_INTERVAL_MS = 4000;
     const EGG_SIZE = 4;
-    const EGG_SPAWN_EVERY_APPLES = 10;
+    const EGG_SPAWN_EVERY_EGGS = 10;
     const HELPER_SNAKE_COUNT = 5;
     const HELPER_SNAKE_LENGTH = 5;
     const HELPER_LIFETIME_MS = 10000;
@@ -347,7 +347,8 @@
     let postBounceRandomTurnAt = 0;
     let medkit = null;
     let egg = null;
-    let nextEggSpawnAtApples = EGG_SPAWN_EVERY_APPLES;
+    let eggsEaten = 0;
+    let nextEggSpawnAtEggs = 1;
     let helperSnakes = [];
     let helperMoveToggle = false;
 
@@ -523,9 +524,8 @@
 
     function maybeSpawnEgg() {
       if (egg) return;
-      if (applesEaten >= nextEggSpawnAtApples) {
+      if (eggsEaten >= nextEggSpawnAtEggs) {
         placeEgg();
-        nextEggSpawnAtApples += EGG_SPAWN_EVERY_APPLES;
       }
     }
 
@@ -699,7 +699,8 @@
       qDir = { ...dir };
       score = 0;
       applesEaten = 0;
-      nextEggSpawnAtApples = EGG_SPAWN_EVERY_APPLES;
+      eggsEaten = 0;
+      nextEggSpawnAtEggs = 1;
       stepMs = BASE_STEP_MS;
       paused = false;
       dead = false;
@@ -870,6 +871,8 @@
         spawnParticles(ex, ey, "#fde047", 34, 2.2, 2, -0.007);
         showTextPop(ex, ey, "EGG!", "#fde047");
         triggerFlash(0.35);
+        eggsEaten++;
+        nextEggSpawnAtEggs = eggsEaten + EGG_SPAWN_EVERY_EGGS;
         egg = null;
         spawnHelperSnakes(HELPER_SNAKE_COUNT);
         growFieldBy(0.2);
