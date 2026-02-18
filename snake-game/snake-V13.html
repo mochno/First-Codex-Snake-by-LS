@@ -313,9 +313,9 @@
     const saveHiToggle = document.getElementById("saveHiToggle");
     const playerNameInput = document.getElementById("playerName");
 
-    const GRID = 20;
-    const TILE = board.width / GRID;
-    const APPLE_COUNT = 3;
+    const BASE_GRID_SIZE = 20;
+    let gridSize = BASE_GRID_SIZE;
+    let tileSize = board.width / gridSize;
     const APPLE_BONUS_THRESHOLD = 15;
     const BASE_STEP_MS = 500;
     const SPEEDUP_PER_APPLE = 0.9;
@@ -325,6 +325,13 @@
     const RED_CROSS_LIFETIME_MS = 10000;
     const RED_CROSS_SPAWN_CHANCE = 0.025;
     const AMBULANCE_SIZE = 2; // 2x2 cells = 4 squares
+    const APPLE_SPAWN_INTERVAL_MS = 5000;
+    const BOUNCE_RANDOM_TURN_INTERVAL_MS = 4000;
+    const EGG_SIZE = 4;
+    const EGG_SPAWN_EVERY_EGGS = 10;
+    const HELPER_SNAKE_COUNT = 5;
+    const HELPER_SNAKE_LENGTH = 5;
+    const HELPER_LIFETIME_MS = 10000;
     const HI_SCORE_KEY = "snake_neon_hi_score";
     const HI_NAME_KEY = "snake_neon_hi_name";
 
@@ -332,12 +339,18 @@
     let applesEaten = 0;
     let stepMs = BASE_STEP_MS;
     let loopId, paused, dead;
+    let appleSpawnLoopId;
     let particles = [];
     let foodPulse = 0;
     let animFrame;
     let flashPower = 0;
-    let bounceCountdown = 0; // steps until forced random direction change after bounce
+    let postBounceRandomTurnAt = 0;
     let medkit = null;
+    let egg = null;
+    let eggsEaten = 0;
+    let nextEggSpawnAtEggs = 1;
+    let helperSnakes = [];
+    let helperMoveToggle = false;
 
     /* ── Particles ─────────────────────────────────── */
     // Spawn radial particles around a board cell for hit/eat effects.
@@ -346,8 +359,8 @@
         const angle = (Math.PI * 2 / count) * i + Math.random() * 0.4;
         const speed = (1.5 + Math.random() * 3) * speedScale;
         particles.push({
-          x: x * TILE + TILE / 2,
-          y: y * TILE + TILE / 2,
+          x: x * tileSize + tileSize / 2,
+          y: y * tileSize + tileSize / 2,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
           life: 1,
@@ -394,8 +407,8 @@
       pop.textContent = "+1";
       const rect = board.getBoundingClientRect();
       const scale = rect.width / board.width;
-      pop.style.left = (cellX * TILE + TILE / 2) * scale + "px";
-      pop.style.top  = (cellY * TILE) * scale + "px";
+      pop.style.left = (cellX * tileSize + tileSize / 2) * scale + "px";
+      pop.style.top  = (cellY * tileSize) * scale + "px";
       wrap.appendChild(pop);
       pop.addEventListener("animationend", () => pop.remove());
     }
@@ -409,8 +422,8 @@
       pop.style.textShadow = `0 0 8px ${color}`;
       const rect = board.getBoundingClientRect();
       const scale = rect.width / board.width;
-      pop.style.left = (cellX * TILE + TILE / 2) * scale + "px";
-      pop.style.top  = (cellY * TILE) * scale + "px";
+      pop.style.left = (cellX * tileSize + tileSize / 2) * scale + "px";
+      pop.style.top  = (cellY * tileSize) * scale + "px";
       wrap.appendChild(pop);
       pop.addEventListener("animationend", () => pop.remove());
     }
@@ -430,7 +443,13 @@
     /* ── Helpers ────────────────────────────────────── */
     // Return a random board coordinate.
     function randCell() {
-      return { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
+      return { x: Math.floor(Math.random() * gridSize), y: Math.floor(Math.random() * gridSize) };
+    }
+
+    // Increase the playable field by percentage and recalculate cell size.
+    function growFieldBy(percent) {
+      gridSize = Math.max(gridSize + 1, Math.round(gridSize * (1 + percent)));
+      tileSize = board.width / gridSize;
     }
 
     // Check whether a board cell is within the 2x2 ambulance footprint.
@@ -439,23 +458,37 @@
       return x >= medkit.x && x < medkit.x + AMBULANCE_SIZE && y >= medkit.y && y < medkit.y + AMBULANCE_SIZE;
     }
 
+    // Check whether a board cell is inside the 4x4 egg footprint.
+    function isCellInsideEgg(x, y) {
+      if (!egg) return false;
+      return x >= egg.x && x < egg.x + EGG_SIZE && y >= egg.y && y < egg.y + EGG_SIZE;
+    }
+
+    function isCellOccupiedByHelpers(x, y) {
+      return helperSnakes.some(h => h.segments.some(s => s.x === x && s.y === y));
+    }
+
     // Place one apple on a free cell.
     function placeOneFood() {
       let tries = 0;
       while (tries < 400) {
         const f = randCell();
         const overlapFood = foods.some(a => a.x === f.x && a.y === f.y);
-        if (!snake.some(s => s.x === f.x && s.y === f.y) && !overlapFood && !isCellInsideMedkit(f.x, f.y)) {
-          foods.push(f);
+        if (!snake.some(s => s.x === f.x && s.y === f.y) && !overlapFood && !isCellInsideMedkit(f.x, f.y) && !isCellInsideEgg(f.x, f.y) && !isCellOccupiedByHelpers(f.x, f.y)) {
+          foods.push({ x: f.x, y: f.y });
           return;
         }
         tries++;
       }
     }
 
-    // Keep target number of apples active for faster gameplay.
-    function ensureFoodsCount() {
-      while (foods.length < APPLE_COUNT) placeOneFood();
+    // Add one apple every fixed interval while game is active.
+    function startAppleSpawner() {
+      clearInterval(appleSpawnLoopId);
+      appleSpawnLoopId = setInterval(() => {
+        if (dead || paused) return;
+        placeOneFood();
+      }, APPLE_SPAWN_INTERVAL_MS);
     }
 
     // Check whether a cell is free of snake, food, and medkit.
@@ -463,7 +496,128 @@
       if (snake.some(s => s.x === x && s.y === y)) return false;
       if (foods.some(a => a.x === x && a.y === y)) return false;
       if (isCellInsideMedkit(x, y)) return false;
+      if (isCellInsideEgg(x, y)) return false;
+      if (isCellOccupiedByHelpers(x, y)) return false;
       return true;
+    }
+
+    function placeEgg() {
+      let tries = 0;
+      while (tries < 500) {
+        const c = {
+          x: Math.floor(Math.random() * (gridSize - EGG_SIZE + 1)),
+          y: Math.floor(Math.random() * (gridSize - EGG_SIZE + 1))
+        };
+        let ok = true;
+        for (let dx = 0; dx < EGG_SIZE && ok; dx++) {
+          for (let dy = 0; dy < EGG_SIZE; dy++) {
+            if (!isFreeCell(c.x + dx, c.y + dy)) { ok = false; break; }
+          }
+        }
+        if (ok) {
+          egg = { x: c.x, y: c.y };
+          return;
+        }
+        tries++;
+      }
+    }
+
+    function maybeSpawnEgg() {
+      if (egg) return;
+      if (eggsEaten >= nextEggSpawnAtEggs) {
+        placeEgg();
+      }
+    }
+
+    function findNearestFood(from) {
+      if (foods.length === 0) return null;
+      let best = foods[0];
+      let bestDist = Math.abs(best.x - from.x) + Math.abs(best.y - from.y);
+      for (let i = 1; i < foods.length; i++) {
+        const f = foods[i];
+        const d = Math.abs(f.x - from.x) + Math.abs(f.y - from.y);
+        if (d < bestDist) { best = f; bestDist = d; }
+      }
+      return best;
+    }
+
+    function findHelperDir(helper) {
+      const head = helper.segments[0];
+      const target = findNearestFood(head);
+      const options = shuffle([...ALL_DIRS]).filter(d => !(d.x === -helper.dir.x && d.y === -helper.dir.y));
+      let bestDir = helper.dir;
+      let bestScore = Infinity;
+
+      for (const d of options) {
+        const nx = head.x + d.x;
+        const ny = head.y + d.y;
+        if (!inBounds(nx, ny)) continue;
+        const hitsPlayer = snake.some(s => s.x === nx && s.y === ny);
+        const hitsHelper = helper.segments.some((s, idx) => idx < helper.segments.length - 1 && s.x === nx && s.y === ny);
+        if (hitsPlayer || hitsHelper || isCellInsideMedkit(nx, ny) || isCellInsideEgg(nx, ny)) continue;
+        const score = target ? Math.abs(target.x - nx) + Math.abs(target.y - ny) : 0;
+        if (score < bestScore) {
+          bestScore = score;
+          bestDir = d;
+        }
+      }
+      return bestDir;
+    }
+
+    function updateHelperSnakes() {
+      for (let i = helperSnakes.length - 1; i >= 0; i--) {
+        const helper = helperSnakes[i];
+        if (Date.now() > helper.expiresAt) {
+          const h = helper.segments[0];
+          spawnParticles(h.x, h.y, "#fb7185", 20, 1.8, 1.6, -0.006);
+          helperSnakes.splice(i, 1);
+          continue;
+        }
+        helper.dir = findHelperDir(helper);
+        const head = helper.segments[0];
+        const next = { x: head.x + helper.dir.x, y: head.y + helper.dir.y };
+        if (!inBounds(next.x, next.y)) continue;
+        helper.segments.unshift(next);
+        helper.segments.pop();
+
+        const foodIndex = foods.findIndex(a => a.x === next.x && a.y === next.y);
+        if (foodIndex >= 0) {
+          const eaten = foods[foodIndex];
+          foods.splice(foodIndex, 1);
+          spawnParticles(eaten.x, eaten.y, "#22d3ee", 16, 1.2, 0.8, -0.003);
+          applyStepMs(stepMs * SPEEDUP_PER_APPLE);
+          if (foods.length === 0) placeOneFood();
+        }
+      }
+    }
+
+    function spawnOneHelperSnake() {
+      let tries = 0;
+      while (tries < 500) {
+        const head = randCell();
+        const dirCandidate = ALL_DIRS[Math.floor(Math.random() * ALL_DIRS.length)];
+        const segments = [];
+        let ok = true;
+        for (let i = 0; i < HELPER_SNAKE_LENGTH; i++) {
+          const sx = head.x - dirCandidate.x * i;
+          const sy = head.y - dirCandidate.y * i;
+          if (!inBounds(sx, sy) || !isFreeCell(sx, sy)) { ok = false; break; }
+          segments.push({ x: sx, y: sy });
+        }
+        if (ok) {
+          helperSnakes.push({
+            segments,
+            dir: { ...dirCandidate },
+            expiresAt: Date.now() + HELPER_LIFETIME_MS
+          });
+          return;
+        }
+        tries++;
+      }
+    }
+
+    function spawnHelperSnakes(count = HELPER_SNAKE_COUNT) {
+      for (let i = 0; i < count; i++) spawnOneHelperSnake();
     }
 
     // Spawn the slowdown medkit on a free cell with expiration timestamp.
@@ -471,8 +625,8 @@
       let tries = 0;
       while (tries < 400) {
         const c = {
-          x: Math.floor(Math.random() * (GRID - AMBULANCE_SIZE + 1)),
-          y: Math.floor(Math.random() * (GRID - AMBULANCE_SIZE + 1))
+          x: Math.floor(Math.random() * (gridSize - AMBULANCE_SIZE + 1)),
+          y: Math.floor(Math.random() * (gridSize - AMBULANCE_SIZE + 1))
         };
         const footprintFree =
           isFreeCell(c.x, c.y) &&
@@ -537,25 +691,33 @@
     /* ── Game logic ────────────────────────────────── */
     // Start a new game round with base speed and fresh state.
     function reset() {
-      const c = Math.floor(GRID / 2);
+      gridSize = BASE_GRID_SIZE;
+      tileSize = board.width / gridSize;
+      const c = Math.floor(gridSize / 2);
       snake = [{ x: c, y: c }, { x: c - 1, y: c }, { x: c - 2, y: c }];
       dir  = { x: 1, y: 0 };
       qDir = { ...dir };
       score = 0;
       applesEaten = 0;
+      eggsEaten = 0;
+      nextEggSpawnAtEggs = 1;
       stepMs = BASE_STEP_MS;
       paused = false;
       dead = false;
       particles = [];
       flashPower = 0;
-      bounceCountdown = 0;
+      postBounceRandomTurnAt = 0;
+      helperMoveToggle = false;
       foods = [];
       medkit = null;
-      ensureFoodsCount();
+      egg = null;
+      helperSnakes = [];
+      placeOneFood();
       overlay.classList.remove("visible");
       updateUI();
       clearInterval(loopId);
       loopId = setInterval(step, stepMs);
+      startAppleSpawner();
     }
 
     // Refresh score UI and maintain high score.
@@ -577,7 +739,7 @@
       if (dead || paused) return;
       if (opposite(next, dir)) return;
       qDir = next;
-      bounceCountdown = 0; // player takes control, cancel auto-redirect
+      postBounceRandomTurnAt = 0; // player takes control, cancel auto-random turns
     }
 
     const ALL_DIRS = [
@@ -585,7 +747,7 @@
       { x: 0, y: 1 }, { x: 0, y: -1 }
     ];
 
-    function inBounds(x, y) { return x >= 0 && x < GRID && y >= 0 && y < GRID; }
+    function inBounds(x, y) { return x >= 0 && x < gridSize && y >= 0 && y < gridSize; }
     function hitsSnake(x, y) { return snake.some(s => s.x === x && s.y === y); }
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
@@ -606,19 +768,19 @@
     function step() {
       if (paused || dead) return;
       clearExpiredMedkit();
+      helperMoveToggle = !helperMoveToggle;
+      if (helperMoveToggle) updateHelperSnakes();
       dir = qDir;
 
-      /* ── Bounce countdown: force a random turn ── */
-      if (bounceCountdown > 0) {
-        bounceCountdown--;
-        if (bounceCountdown === 0) {
-          const rnd = pickRandomSafeDir(snake[0]);
-          if (rnd) {
-            dir = rnd;
-            qDir = { ...dir };
-            spawnParticles(snake[0].x, snake[0].y, "#a78bfa", 6); // purple flash for redirect
-          }
+      /* ── After wall bounce: random direction every 4 seconds ── */
+      if (postBounceRandomTurnAt && Date.now() >= postBounceRandomTurnAt) {
+        const rnd = pickRandomSafeDir(snake[0]);
+        if (rnd) {
+          dir = rnd;
+          qDir = { ...dir };
+          spawnParticles(snake[0].x, snake[0].y, "#a78bfa", 8);
         }
+        postBounceRandomTurnAt = Date.now() + BOUNCE_RANDOM_TURN_INTERVAL_MS;
       }
 
       let head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
@@ -626,8 +788,8 @@
       /* ── Wall bounce ─────────────────────────────── */
       if (!inBounds(head.x, head.y)) {
         spawnParticles(
-          Math.max(0, Math.min(GRID - 1, head.x)),
-          Math.max(0, Math.min(GRID - 1, head.y)),
+          Math.max(0, Math.min(gridSize - 1, head.x)),
+          Math.max(0, Math.min(gridSize - 1, head.y)),
           "#38bdf8", 8
         );
 
@@ -636,6 +798,7 @@
         if (!safeDir) {
           dead = true;
           clearInterval(loopId);
+          clearInterval(appleSpawnLoopId);
           screenShake();
           spawnParticles(snake[0].x, snake[0].y, "#f43f5e", 20);
           finalEl.textContent = score;
@@ -648,14 +811,15 @@
         qDir = { ...dir };
         head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
 
-        // Schedule another random direction change in 2-6 steps
-        bounceCountdown = 2 + Math.floor(Math.random() * 5);
+        // After bounce, keep randomizing direction every 4 seconds until user input.
+        postBounceRandomTurnAt = Date.now() + BOUNCE_RANDOM_TURN_INTERVAL_MS;
       }
 
       /* ── Self-collision ──────────────────────────── */
       if (hitsSnake(head.x, head.y)) {
         dead = true;
         clearInterval(loopId);
+        clearInterval(appleSpawnLoopId);
         screenShake();
         spawnParticles(head.x, head.y, "#f43f5e", 20);
         finalEl.textContent = score;
@@ -686,7 +850,7 @@
           }
           showTextPop(eaten.x, eaten.y, "+10% SIZE", "#34d399");
         }
-        ensureFoodsCount();
+        if (foods.length === 0) placeOneFood();
       } else {
         snake.pop();
       }
@@ -701,7 +865,21 @@
         medkit = null;
       }
 
+      if (egg && isCellInsideEgg(head.x, head.y)) {
+        const ex = egg.x + EGG_SIZE / 2;
+        const ey = egg.y + EGG_SIZE / 2;
+        spawnParticles(ex, ey, "#fde047", 34, 2.2, 2, -0.007);
+        showTextPop(ex, ey, "EGG!", "#fde047");
+        triggerFlash(0.35);
+        eggsEaten++;
+        nextEggSpawnAtEggs = eggsEaten + EGG_SPAWN_EVERY_EGGS;
+        egg = null;
+        spawnHelperSnakes(HELPER_SNAKE_COUNT);
+        growFieldBy(0.2);
+      }
+
       maybeSpawnMedkit();
+      maybeSpawnEgg();
       updateUI();
     }
 
@@ -710,8 +888,8 @@
     function drawGrid() {
       ctx.strokeStyle = "rgba(148, 163, 184, 0.05)";
       ctx.lineWidth = 1;
-      for (let i = 0; i <= GRID; i++) {
-        const p = i * TILE;
+      for (let i = 0; i <= gridSize; i++) {
+        const p = i * tileSize;
         ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, board.height); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(board.width, p); ctx.stroke();
       }
@@ -723,9 +901,9 @@
       foods.forEach((apple, i) => {
         const phase = foodPulse + i * 0.9;
         const pulse = 1 + Math.sin(phase) * 0.15;
-        const cx = apple.x * TILE + TILE / 2;
-        const cy = apple.y * TILE + TILE / 2;
-        const r  = (TILE / 2 - 2) * pulse;
+        const cx = apple.x * tileSize + tileSize / 2;
+        const cy = apple.y * tileSize + tileSize / 2;
+        const r  = (tileSize / 2 - 2) * pulse;
 
         ctx.save();
         ctx.shadowColor = "rgba(244, 63, 94, 0.6)";
@@ -745,13 +923,33 @@
       });
     }
 
+    function drawEgg() {
+      if (!egg) return;
+      const x = egg.x * tileSize + 2;
+      const y = egg.y * tileSize + 2;
+      const w = tileSize * EGG_SIZE - 4;
+      const h = tileSize * EGG_SIZE - 4;
+
+      ctx.save();
+      ctx.shadowColor = "rgba(253, 224, 71, 0.55)";
+      ctx.shadowBlur = 16;
+      const grd = ctx.createRadialGradient(x + w * 0.4, y + h * 0.35, 2, x + w * 0.5, y + h * 0.6, w * 0.8);
+      grd.addColorStop(0, "#fff7b3");
+      grd.addColorStop(1, "#f59e0b");
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2, y + h / 2, w * 0.42, h * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     // Draw ambulance slowdown item.
     function drawMedkit() {
       if (!medkit) return;
-      const x = medkit.x * TILE + 2;
-      const y = medkit.y * TILE + 2;
-      const w = TILE * AMBULANCE_SIZE - 4;
-      const h = TILE * AMBULANCE_SIZE - 4;
+      const x = medkit.x * tileSize + 2;
+      const y = medkit.y * tileSize + 2;
+      const w = tileSize * AMBULANCE_SIZE - 4;
+      const h = tileSize * AMBULANCE_SIZE - 4;
 
       ctx.save();
       ctx.shadowColor = "rgba(248, 113, 113, 0.45)";
@@ -790,14 +988,34 @@
       ctx.restore();
     }
 
+    function drawHelperSnakes() {
+      helperSnakes.forEach(helper => {
+        helper.segments.forEach((seg, i) => {
+          const cx = seg.x * tileSize + tileSize / 2;
+          const cy = seg.y * tileSize + tileSize / 2;
+          const radius = Math.max(3, (tileSize / 2 - 2) * (1 - i * 0.08));
+          ctx.save();
+          ctx.fillStyle = i === 0 ? "#67e8f9" : "#0891b2";
+          if (i === 0) {
+            ctx.shadowColor = "rgba(103,232,249,0.45)";
+            ctx.shadowBlur = 10;
+          }
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+      });
+    }
+
     // Draw snake body, gradients, and head details.
     function drawSnake() {
       const len = snake.length;
 
       snake.forEach((seg, i) => {
         const t  = len > 1 ? i / (len - 1) : 0;
-        const cx = seg.x * TILE + TILE / 2;
-        const cy = seg.y * TILE + TILE / 2;
+        const cx = seg.x * tileSize + tileSize / 2;
+        const cy = seg.y * tileSize + tileSize / 2;
 
         // Interpolate head→tail color
         const r = Math.round(74 + (6 - 74) * t);
@@ -805,7 +1023,7 @@
         const b = Math.round(128 + (38 - 128) * t);
         const color = `rgb(${r},${g},${b})`;
 
-        const radius = (TILE / 2 - 1) * (1 - t * 0.3); // taper towards tail
+        const radius = (tileSize / 2 - 1) * (1 - t * 0.3); // taper towards tail
 
         ctx.save();
         if (i === 0) {
@@ -824,18 +1042,18 @@
         ctx.save();
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
-        ctx.lineWidth = TILE - 6;
+        ctx.lineWidth = tileSize - 6;
         const grad = ctx.createLinearGradient(
-          snake[0].x * TILE, snake[0].y * TILE,
-          snake[len - 1].x * TILE, snake[len - 1].y * TILE
+          snake[0].x * tileSize, snake[0].y * tileSize,
+          snake[len - 1].x * tileSize, snake[len - 1].y * tileSize
         );
         grad.addColorStop(0, "rgba(74,222,128,0.45)");
         grad.addColorStop(1, "rgba(6,95,38,0.2)");
         ctx.strokeStyle = grad;
         ctx.beginPath();
-        ctx.moveTo(snake[0].x * TILE + TILE / 2, snake[0].y * TILE + TILE / 2);
+        ctx.moveTo(snake[0].x * tileSize + tileSize / 2, snake[0].y * tileSize + tileSize / 2);
         for (let i = 1; i < len; i++) {
-          ctx.lineTo(snake[i].x * TILE + TILE / 2, snake[i].y * TILE + TILE / 2);
+          ctx.lineTo(snake[i].x * tileSize + tileSize / 2, snake[i].y * tileSize + tileSize / 2);
         }
         ctx.stroke();
         ctx.restore();
@@ -844,12 +1062,12 @@
       // Re-draw circles on top of the line
       snake.forEach((seg, i) => {
         const t  = len > 1 ? i / (len - 1) : 0;
-        const cx = seg.x * TILE + TILE / 2;
-        const cy = seg.y * TILE + TILE / 2;
+        const cx = seg.x * tileSize + tileSize / 2;
+        const cy = seg.y * tileSize + tileSize / 2;
         const r2 = Math.round(74 + (6 - 74) * t);
         const g2 = Math.round(222 + (95 - 222) * t);
         const b2 = Math.round(128 + (38 - 128) * t);
-        const radius = (TILE / 2 - 1) * (1 - t * 0.3);
+        const radius = (tileSize / 2 - 1) * (1 - t * 0.3);
         ctx.fillStyle = `rgb(${r2},${g2},${b2})`;
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
@@ -862,11 +1080,11 @@
 
     // Draw eyes oriented to current movement direction.
     function drawEyes(head, d) {
-      const cx = head.x * TILE + TILE / 2;
-      const cy = head.y * TILE + TILE / 2;
-      const eyeOff = TILE * 0.22;
-      const eyeR   = TILE * 0.13;
-      const pupilR  = TILE * 0.065;
+      const cx = head.x * tileSize + tileSize / 2;
+      const cy = head.y * tileSize + tileSize / 2;
+      const eyeOff = tileSize * 0.22;
+      const eyeR   = tileSize * 0.13;
+      const pupilR  = tileSize * 0.065;
 
       // Perpendicular to direction
       const px = -d.y;
@@ -909,7 +1127,9 @@
 
       drawGrid();
       drawFood();
+      drawEgg();
       drawMedkit();
+      drawHelperSnakes();
       drawSnake();
       updateParticles();
       drawParticles();
@@ -951,6 +1171,16 @@
 
     /* ── Input ─────────────────────────────────────── */
     document.addEventListener("keydown", e => {
+      const target = e.target;
+      const isTypingContext =
+        target &&
+        (
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable
+        );
+      if (isTypingContext) return;
+
       const k = e.key.toLowerCase();
       if (k === "arrowup"    || k === "w") { queueDir({ x: 0, y: -1 }); e.preventDefault(); }
       if (k === "arrowdown"  || k === "s") { queueDir({ x: 0, y: 1  }); e.preventDefault(); }
