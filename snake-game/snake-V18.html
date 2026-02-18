@@ -228,6 +228,24 @@
       width: 130px;
     }
 
+    .howto {
+      margin-top: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(2, 6, 23, 0.5);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .howto strong {
+      color: var(--text);
+      font-family: 'Orbitron', monospace;
+      font-size: 0.74rem;
+      letter-spacing: 0.4px;
+    }
+
     .hint kbd {
       background: rgba(148,163,184,0.12);
       padding: 2px 6px;
@@ -297,6 +315,17 @@
       <label><input id="saveHiToggle" type="checkbox" checked /> Save HI</label>
       <input id="playerName" type="text" maxlength="20" placeholder="Player name" />
     </p>
+
+    <section class="howto" aria-label="How to play">
+      <strong>HOW TO</strong><br />
+      Controls: Move with Arrow keys or W/A/S/D. Press F to shoot if gun is active. Space pauses the game.<br />
+      Goal: Eat apples to score and speed up. Every 15 apples, your snake grows by 10%.<br />
+      Egg (4x4): Spawns on a timer. Eat it to spawn 5 helper snakes, enlarge map by 20%, and trigger the next egg cycle.<br />
+      Helper snakes: Move at half speed, hunt apples, and vanish with explosion after 10 seconds.<br />
+      Flower (2x2): Temporary item. Eat it to activate triangular court mode for 5 seconds.<br />
+      Gun (3x3): Temporary item. Eat it to enable shooting from snake mouth in movement direction. Bullets can destroy helper snakes.<br />
+      Item rules: Flower and gun disappear after 5 seconds if not picked, then respawn again.
+    </section>
   </main>
 
   <script>
