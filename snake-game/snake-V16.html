@@ -329,6 +329,7 @@
     const BOUNCE_RANDOM_TURN_INTERVAL_MS = 4000;
     const EGG_SIZE = 4;
     const EGG_VISIBLE_MS = 5000;
+    const FIRST_EGG_DELAY_MS = 10000;
     const EGG_RESPAWN_MIN_MS = 10000;
     const EGG_RESPAWN_MAX_MS = 15000;
     const HELPER_SNAKE_COUNT = 5;
@@ -724,9 +725,8 @@
       medkit = null;
       egg = null;
       helperSnakes = [];
-      nextEggSpawnAt = 0;
+      nextEggSpawnAt = Date.now() + FIRST_EGG_DELAY_MS;
       placeOneFood();
-      placeEgg();
       overlay.classList.remove("visible");
       updateUI();
       clearInterval(loopId);
