@@ -325,6 +325,8 @@
     const RED_CROSS_LIFETIME_MS = 10000;
     const RED_CROSS_SPAWN_CHANCE = 0.025;
     const AMBULANCE_SIZE = 2; // 2x2 cells = 4 squares
+    const APPLE_LIFETIME_MS = 6000;
+    const BOUNCE_RANDOM_TURN_INTERVAL_MS = 4000;
     const HI_SCORE_KEY = "snake_neon_hi_score";
     const HI_NAME_KEY = "snake_neon_hi_name";
 
@@ -336,7 +338,7 @@
     let foodPulse = 0;
     let animFrame;
     let flashPower = 0;
-    let bounceCountdown = 0; // steps until forced random direction change after bounce
+    let postBounceRandomTurnAt = 0;
     let medkit = null;
 
     /* ── Particles ─────────────────────────────────── */
@@ -446,7 +448,11 @@
         const f = randCell();
         const overlapFood = foods.some(a => a.x === f.x && a.y === f.y);
         if (!snake.some(s => s.x === f.x && s.y === f.y) && !overlapFood && !isCellInsideMedkit(f.x, f.y)) {
-          foods.push(f);
+          foods.push({
+            x: f.x,
+            y: f.y,
+            expiresAt: Date.now() + APPLE_LIFETIME_MS
+          });
           return;
         }
         tries++;
@@ -456,6 +462,14 @@
     // Keep target number of apples active for faster gameplay.
     function ensureFoodsCount() {
       while (foods.length < APPLE_COUNT) placeOneFood();
+    }
+
+    // Remove expired apples and refill to keep constant count.
+    function clearExpiredFoods() {
+      const now = Date.now();
+      const before = foods.length;
+      foods = foods.filter(a => a.expiresAt > now);
+      if (foods.length < before) ensureFoodsCount();
     }
 
     // Check whether a cell is free of snake, food, and medkit.
@@ -548,7 +562,7 @@
       dead = false;
       particles = [];
       flashPower = 0;
-      bounceCountdown = 0;
+      postBounceRandomTurnAt = 0;
       foods = [];
       medkit = null;
       ensureFoodsCount();
@@ -577,7 +591,7 @@
       if (dead || paused) return;
       if (opposite(next, dir)) return;
       qDir = next;
-      bounceCountdown = 0; // player takes control, cancel auto-redirect
+      postBounceRandomTurnAt = 0; // player takes control, cancel auto-random turns
     }
 
     const ALL_DIRS = [
@@ -606,19 +620,18 @@
     function step() {
       if (paused || dead) return;
       clearExpiredMedkit();
+      clearExpiredFoods();
       dir = qDir;
 
-      /* ── Bounce countdown: force a random turn ── */
-      if (bounceCountdown > 0) {
-        bounceCountdown--;
-        if (bounceCountdown === 0) {
-          const rnd = pickRandomSafeDir(snake[0]);
-          if (rnd) {
-            dir = rnd;
-            qDir = { ...dir };
-            spawnParticles(snake[0].x, snake[0].y, "#a78bfa", 6); // purple flash for redirect
-          }
+      /* ── After wall bounce: random direction every 4 seconds ── */
+      if (postBounceRandomTurnAt && Date.now() >= postBounceRandomTurnAt) {
+        const rnd = pickRandomSafeDir(snake[0]);
+        if (rnd) {
+          dir = rnd;
+          qDir = { ...dir };
+          spawnParticles(snake[0].x, snake[0].y, "#a78bfa", 8);
         }
+        postBounceRandomTurnAt = Date.now() + BOUNCE_RANDOM_TURN_INTERVAL_MS;
       }
 
       let head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
@@ -648,8 +661,8 @@
         qDir = { ...dir };
         head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
 
-        // Schedule another random direction change in 2-6 steps
-        bounceCountdown = 2 + Math.floor(Math.random() * 5);
+        // After bounce, keep randomizing direction every 4 seconds until user input.
+        postBounceRandomTurnAt = Date.now() + BOUNCE_RANDOM_TURN_INTERVAL_MS;
       }
 
       /* ── Self-collision ──────────────────────────── */
