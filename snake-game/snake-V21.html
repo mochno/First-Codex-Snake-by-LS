@@ -237,6 +237,56 @@
       width: 130px;
     }
 
+    .joystick-wrap {
+      margin-top: 10px;
+      display: none;
+      justify-content: center;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .joystick-toggle {
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: rgba(15, 23, 42, 0.8);
+      color: var(--text);
+      font-size: 0.72rem;
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-family: 'Orbitron', monospace;
+    }
+
+    .joystick {
+      width: 120px;
+      display: none;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      gap: 6px;
+      touch-action: manipulation;
+      user-select: none;
+    }
+
+    .joystick.show {
+      display: grid;
+    }
+
+    .joy-btn {
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: rgba(15, 23, 42, 0.75);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      height: 34px;
+      padding: 0;
+    }
+
+    .joy-empty {
+      pointer-events: none;
+      background: transparent;
+      border: 0;
+    }
+
     .howto {
       border: 1px solid rgba(148, 163, 184, 0.18);
       background: rgba(2, 6, 23, 0.5);
@@ -336,6 +386,10 @@
       .game-layout { grid-template-columns: 1fr; }
     }
 
+    @media (pointer: coarse), (max-width: 900px) {
+      .joystick-wrap { display: flex; }
+    }
+
     .hint kbd,
     .howto kbd {
       background: rgba(148,163,184,0.12);
@@ -423,6 +477,21 @@
           <label><input id="saveHiToggle" type="checkbox" checked /> Save HI</label>
           <input id="playerName" type="text" maxlength="20" placeholder="Player name" />
         </p>
+
+        <div class="joystick-wrap" aria-label="Mobile controls">
+          <button id="joystickToggle" class="joystick-toggle" type="button">Show Joystick</button>
+          <div id="joystick" class="joystick" role="group" aria-label="Joystick">
+            <button class="joy-empty" type="button" aria-hidden="true"></button>
+            <button class="joy-btn" data-dir="up" type="button" aria-label="Move up">▲</button>
+            <button class="joy-empty" type="button" aria-hidden="true"></button>
+            <button class="joy-btn" data-dir="left" type="button" aria-label="Move left">◀</button>
+            <button class="joy-empty" type="button" aria-hidden="true"></button>
+            <button class="joy-btn" data-dir="right" type="button" aria-label="Move right">▶</button>
+            <button class="joy-empty" type="button" aria-hidden="true"></button>
+            <button class="joy-btn" data-dir="down" type="button" aria-label="Move down">▼</button>
+            <button class="joy-empty" type="button" aria-hidden="true"></button>
+          </div>
+        </div>
       </div>
     </div>
   </main>
@@ -440,6 +509,8 @@
     const gameWrap= document.getElementById("gameWrap");
     const saveHiToggle = document.getElementById("saveHiToggle");
     const playerNameInput = document.getElementById("playerName");
+    const joystickToggle = document.getElementById("joystickToggle");
+    const joystick = document.getElementById("joystick");
 
     const BASE_GRID_SIZE = 20;
     let gridSize = BASE_GRID_SIZE;
@@ -505,6 +576,7 @@
     let bullets = [];
     let nextPlaygroundResizeAt = 0;
     let lastManualControlAt = 0;
+    let joystickEnabled = false;
 
     const HELPER_PALETTE = [
       { body: "#38bdf8", head: "#7dd3fc" },
@@ -1718,6 +1790,42 @@
         e.preventDefault();
         if (!dead) { paused = !paused; }
       }
+    });
+
+    function handleJoystickDirection(dirName) {
+      switch (dirName) {
+        case "up":
+          queueDir({ x: 0, y: -1 });
+          break;
+        case "down":
+          queueDir({ x: 0, y: 1 });
+          break;
+        case "left":
+          queueDir({ x: -1, y: 0 });
+          break;
+        case "right":
+          queueDir({ x: 1, y: 0 });
+          break;
+        default:
+          break;
+      }
+    }
+
+    joystickToggle.addEventListener("click", () => {
+      joystickEnabled = !joystickEnabled;
+      joystick.classList.toggle("show", joystickEnabled);
+      joystickToggle.textContent = joystickEnabled ? "Hide Joystick" : "Show Joystick";
+    });
+
+    joystick.querySelectorAll(".joy-btn").forEach(btn => {
+      btn.addEventListener("touchstart", e => {
+        e.preventDefault();
+        handleJoystickDirection(btn.dataset.dir);
+      }, { passive: false });
+      btn.addEventListener("click", e => {
+        e.preventDefault();
+        handleJoystickDirection(btn.dataset.dir);
+      });
     });
 
     document.getElementById("restartBtn").addEventListener("click", reset);
