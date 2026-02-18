@@ -193,6 +193,15 @@
       padding: 10px 24px;
     }
 
+    .game-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .play-area { min-width: 0; }
+
     .hint {
       margin-top: 12px;
       color: var(--muted);
@@ -229,11 +238,10 @@
     }
 
     .howto {
-      margin-top: 14px;
       border: 1px solid rgba(148, 163, 184, 0.18);
       background: rgba(2, 6, 23, 0.5);
       border-radius: 10px;
-      padding: 10px 12px;
+      padding: 12px 12px;
       font-size: 0.78rem;
       color: var(--muted);
       line-height: 1.45;
@@ -244,9 +252,92 @@
       font-family: 'Orbitron', monospace;
       font-size: 0.74rem;
       letter-spacing: 0.4px;
+      display: block;
+      margin-bottom: 8px;
     }
 
-    .hint kbd {
+    .howto ul {
+      margin: 0;
+      padding-left: 16px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .howto li { color: var(--text); }
+    .howto li span { color: var(--muted); }
+
+    .icon {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      margin-right: 6px;
+      vertical-align: -2px;
+      position: relative;
+    }
+
+    .icon-apple {
+      border-radius: 50%;
+      background: #f43f5e;
+      box-shadow: 0 0 6px rgba(244,63,94,0.6);
+    }
+
+    .icon-egg {
+      width: 12px;
+      height: 16px;
+      border-radius: 50% 50% 46% 46%;
+      background: radial-gradient(circle at 35% 30%, #fff7b3 0%, #f59e0b 100%);
+    }
+
+    .icon-flower {
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 15%, #f472b6 0 28%, transparent 29%),
+        radial-gradient(circle at 85% 50%, #f472b6 0 28%, transparent 29%),
+        radial-gradient(circle at 50% 85%, #f472b6 0 28%, transparent 29%),
+        radial-gradient(circle at 15% 50%, #f472b6 0 28%, transparent 29%),
+        radial-gradient(circle at 50% 50%, #fde68a 0 24%, transparent 25%);
+    }
+
+    .icon-gun {
+      width: 16px;
+      height: 12px;
+      background:
+        linear-gradient(#d1d5db, #d1d5db) 2px 5px / 10px 3px no-repeat,
+        linear-gradient(#9ca3af, #9ca3af) 5px 8px / 3px 4px no-repeat,
+        linear-gradient(#f59e0b, #f59e0b) 12px 6px / 3px 1px no-repeat;
+    }
+
+    .icon-helper {
+      border-radius: 50%;
+      background: #22d3ee;
+      box-shadow: 0 0 6px rgba(34,211,238,0.5);
+    }
+
+    .icon-triangle {
+      width: 0;
+      height: 0;
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-bottom: 14px solid #f472b6;
+      margin-right: 8px;
+      vertical-align: -1px;
+    }
+
+    .icon-ambulance {
+      width: 16px;
+      height: 11px;
+      background:
+        linear-gradient(#f8fafc, #f8fafc) 0 3px / 11px 6px no-repeat,
+        linear-gradient(#f8fafc, #f8fafc) 9px 4px / 6px 5px no-repeat,
+        linear-gradient(#ef4444, #ef4444) 1px 5px / 11px 1px no-repeat;
+    }
+
+    @media (max-width: 900px) {
+      .game-layout { grid-template-columns: 1fr; }
+    }
+
+    .hint kbd,
+    .howto kbd {
       background: rgba(148,163,184,0.12);
       padding: 2px 6px;
       border-radius: 4px;
@@ -289,43 +380,51 @@
 </head>
 <body>
   <main class="game-wrap" id="gameWrap">
-    <div class="top-bar">
-      <div class="scores">
-        <div class="score-label">
-          <span class="score-value" id="score">0</span>
+    <div class="game-layout">
+      <section class="howto" aria-label="How to play">
+        <strong>HOW TO</strong>
+        <ul>
+          <li><span>Move with Arrow keys or W/A/S/D. Press <kbd>F</kbd> to shoot (after picking gun). Press <kbd>Space</kbd> to pause.</span></li>
+          <li><span class="icon icon-apple" aria-hidden="true"></span><span>Eat apples to score, speed up, and grow by +10% every 15 apples.</span></li>
+          <li><span class="icon icon-egg" aria-hidden="true"></span><span>Eat egg to spawn helper snakes and expand the map.</span></li>
+          <li><span class="icon icon-helper" aria-hidden="true"></span><span>Helper snakes chase apples, speed up gameplay, and vanish with explosion after 10s.</span></li>
+          <li><span class="icon icon-flower" aria-hidden="true"></span><span>Flower triggers triangle mode: 5s blinking prep, then 5s active triangle zone.</span></li>
+          <li><span class="icon icon-triangle" aria-hidden="true"></span><span>During active triangle phase, you must stay inside the triangle.</span></li>
+          <li><span class="icon icon-gun" aria-hidden="true"></span><span>Gun enables mouth-shooting in movement direction; bullets can destroy helper snakes.</span></li>
+          <li><span class="icon icon-ambulance" aria-hidden="true"></span><span>Ambulance slows snake movement when collected.</span></li>
+          <li><span>Flower and gun disappear if not collected, then reappear again.</span></li>
+        </ul>
+      </section>
+
+      <div class="play-area">
+        <div class="top-bar">
+          <div class="scores">
+            <div class="score-label">
+              <span class="score-value" id="score">0</span>
+            </div>
+            <div class="hi-label">
+              HI <span class="hi-value" id="hiScore">0</span> by <span class="hi-value" id="hiName">Player</span>
+            </div>
+          </div>
+          <button id="restartBtn" type="button">Restart</button>
         </div>
-        <div class="hi-label">
-          HI <span class="hi-value" id="hiScore">0</span> by <span class="hi-value" id="hiName">Player</span>
+
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="board" width="800" height="800" aria-label="Snake game board"></canvas>
+          <div class="overlay" id="overlay">
+            <h2>GAME OVER</h2>
+            <div class="final-score">Score: <span id="finalScore">0</span></div>
+            <button id="overlayRestart" type="button">Play Again</button>
+          </div>
         </div>
-      </div>
-      <button id="restartBtn" type="button">Restart</button>
-    </div>
 
-    <div class="canvas-wrap" id="canvasWrap">
-      <canvas id="board" width="800" height="800" aria-label="Snake game board"></canvas>
-      <div class="overlay" id="overlay">
-        <h2>GAME OVER</h2>
-        <div class="final-score">Score: <span id="finalScore">0</span></div>
-        <button id="overlayRestart" type="button">Play Again</button>
+        <p class="hint">
+          <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp; <kbd>F</kbd> shoot &nbsp;·&nbsp; <kbd>Space</kbd> pause
+          <label><input id="saveHiToggle" type="checkbox" checked /> Save HI</label>
+          <input id="playerName" type="text" maxlength="20" placeholder="Player name" />
+        </p>
       </div>
     </div>
-
-    <p class="hint">
-      <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp; <kbd>F</kbd> shoot &nbsp;·&nbsp; <kbd>Space</kbd> pause
-      <label><input id="saveHiToggle" type="checkbox" checked /> Save HI</label>
-      <input id="playerName" type="text" maxlength="20" placeholder="Player name" />
-    </p>
-
-    <section class="howto" aria-label="How to play">
-      <strong>HOW TO</strong><br />
-      Controls: Move with Arrow keys or W/A/S/D. Press F to shoot if gun is active. Space pauses the game.<br />
-      Goal: Eat apples to score and speed up. Every 15 apples, your snake grows by 10%.<br />
-      Egg (4x4): Spawns on a timer. Eat it to spawn 5 helper snakes, enlarge map by 20%, and trigger the next egg cycle.<br />
-      Helper snakes: Move at half speed, hunt apples, and vanish with explosion after 10 seconds.<br />
-      Flower (2x2): Temporary item. Eat it to activate triangular court mode for 5 seconds.<br />
-      Gun (3x3): Temporary item. Eat it to enable shooting from snake mouth in movement direction. Bullets can destroy helper snakes.<br />
-      Item rules: Flower and gun disappear after 5 seconds if not picked, then respawn again.
-    </section>
   </main>
 
   <script>
@@ -365,7 +464,8 @@
     const FLOWER_VISIBLE_MS = 5000;
     const FLOWER_RESPAWN_MIN_MS = 8000;
     const FLOWER_RESPAWN_MAX_MS = 12000;
-    const FLOWER_TRIANGLE_MS = 5000;
+    const FLOWER_TRIANGLE_BLINK_MS = 5000;
+    const FLOWER_TRIANGLE_ACTIVE_MS = 5000;
     const GUN_SIZE = 3;
     const GUN_VISIBLE_MS = 5000;
     const GUN_RESPAWN_MS = 20000;
@@ -388,7 +488,6 @@
     let appleSpawnLoopId;
     let particles = [];
     let foodPulse = 0;
-    let animFrame;
     let flashPower = 0;
     let postBounceRandomTurnAt = 0;
     let medkit = null;
@@ -400,6 +499,7 @@
     let nextEggSpawnAt = 0;
     let nextFlowerSpawnAt = 0;
     let nextGunSpawnAt = 0;
+    let triangleBlinkUntil = 0;
     let triangleModeUntil = 0;
     let hasGun = false;
     let bullets = [];
@@ -551,8 +651,12 @@
       return min + Math.floor(Math.random() * (max - min + 1));
     }
 
+    function triangleBlinkActive() {
+      return Date.now() < triangleBlinkUntil;
+    }
+
     function triangleActive() {
-      return Date.now() < triangleModeUntil;
+      return Date.now() >= triangleBlinkUntil && Date.now() < triangleModeUntil;
     }
 
     function inTriangle(x, y) {
@@ -802,7 +906,7 @@
         for (let i = 0; i < HELPER_SNAKE_LENGTH; i++) {
           const sx = head.x - dirCandidate.x * i;
           const sy = head.y - dirCandidate.y * i;
-          if (!inBounds(sx, sy) || !isFreeCell(sx, sy)) { ok = false; break; }
+          if (!isPlayableCell(sx, sy) || !isFreeCell(sx, sy)) { ok = false; break; }
           segments.push({ x: sx, y: sy });
         }
         if (ok) {
@@ -965,6 +1069,7 @@
       helperSnakes = [];
       hasGun = false;
       bullets = [];
+      triangleBlinkUntil = 0;
       triangleModeUntil = 0;
       lastManualControlAt = Date.now();
       nextEggSpawnAt = Date.now() + FIRST_EGG_DELAY_MS;
@@ -1007,7 +1112,6 @@
       { x: 0, y: 1 }, { x: 0, y: -1 }
     ];
 
-    function inBounds(x, y) { return x >= 0 && x < gridSize && y >= 0 && y < gridSize; }
     function hitsSnake(x, y) { return snake.some(s => s.x === x && s.y === y); }
     function shuffle(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
@@ -1048,6 +1152,19 @@
       helperMoveToggle = !helperMoveToggle;
       if (helperMoveToggle) updateHelperSnakes();
       updateBullets();
+
+      if (triangleActive() && !inTriangle(snake[0].x, snake[0].y)) {
+        dead = true;
+        clearInterval(loopId);
+        clearInterval(appleSpawnLoopId);
+        screenShake();
+        spawnParticles(snake[0].x, snake[0].y, "#f43f5e", 24, 1.8, 1.6, -0.006);
+        finalEl.textContent = score;
+        setTimeout(() => overlay.classList.add("visible"), 350);
+        updateUI();
+        return;
+      }
+
       dir = qDir;
 
       /* ── After wall bounce: random direction every 4 seconds ── */
@@ -1169,8 +1286,9 @@
         const fx = flower.x + FLOWER_SIZE / 2;
         const fy = flower.y + FLOWER_SIZE / 2;
         spawnParticles(fx, fy, "#f472b6", 26, 1.8, 1.3, -0.006);
-        showTextPop(fx, fy, "TRIANGLE", "#f472b6");
-        triangleModeUntil = Date.now() + FLOWER_TRIANGLE_MS;
+        showTextPop(fx, fy, "TRIANGLE!", "#f472b6");
+        triangleBlinkUntil = Date.now() + FLOWER_TRIANGLE_BLINK_MS;
+        triangleModeUntil = triangleBlinkUntil + FLOWER_TRIANGLE_ACTIVE_MS;
         flower = null;
         nextFlowerSpawnAt = Date.now() + randomMs(FLOWER_RESPAWN_MIN_MS, FLOWER_RESPAWN_MAX_MS);
       }
@@ -1518,9 +1636,22 @@
       updateParticles();
       drawParticles();
 
-      if (triangleActive()) {
+      if (triangleBlinkActive()) {
+        const blinkOn = Math.floor(Date.now() / 220) % 2 === 0;
+        if (blinkOn) {
+          ctx.save();
+          ctx.fillStyle = "rgba(244,114,182,0.14)";
+          ctx.beginPath();
+          ctx.moveTo(board.width / 2, 0);
+          ctx.lineTo(board.width, board.height);
+          ctx.lineTo(0, board.height);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+      } else if (triangleActive()) {
         ctx.save();
-        ctx.fillStyle = "rgba(244,114,182,0.08)";
+        ctx.fillStyle = "rgba(244,114,182,0.2)";
         ctx.beginPath();
         ctx.moveTo(board.width / 2, 0);
         ctx.lineTo(board.width, board.height);
@@ -1562,7 +1693,7 @@
         ctx.restore();
       }
 
-      animFrame = requestAnimationFrame(render);
+      requestAnimationFrame(render);
     }
 
     /* ── Input ─────────────────────────────────────── */
