@@ -373,6 +373,8 @@
     const PLAYGROUND_GROWTH = 0.1;
     const PLAYGROUND_MAX_MULTIPLIER = 2;
     const PLAYGROUND_REDUCE_FACTOR = 0.5;
+    const CHAOS_IDLE_MS = 10000;
+    const CHAOS_TURN_CHANCE = 0.28;
     const HELPER_SNAKE_COUNT = 5;
     const HELPER_SNAKE_LENGTH = 5;
     const HELPER_LIFETIME_MS = 10000;
@@ -402,6 +404,7 @@
     let hasGun = false;
     let bullets = [];
     let nextPlaygroundResizeAt = 0;
+    let lastManualControlAt = 0;
 
     const HELPER_PALETTE = [
       { body: "#38bdf8", head: "#7dd3fc" },
@@ -963,6 +966,7 @@
       hasGun = false;
       bullets = [];
       triangleModeUntil = 0;
+      lastManualControlAt = Date.now();
       nextEggSpawnAt = Date.now() + FIRST_EGG_DELAY_MS;
       nextFlowerSpawnAt = Date.now() + randomMs(FLOWER_RESPAWN_MIN_MS, FLOWER_RESPAWN_MAX_MS);
       nextGunSpawnAt = Date.now() + GUN_RESPAWN_MS;
@@ -995,6 +999,7 @@
       if (opposite(next, dir)) return;
       qDir = next;
       postBounceRandomTurnAt = 0; // player takes control, cancel auto-random turns
+      lastManualControlAt = Date.now();
     }
 
     const ALL_DIRS = [
@@ -1010,6 +1015,19 @@
     function pickRandomSafeDir(fromHead) {
       const tail = snake[snake.length - 1];
       const candidates = shuffle(ALL_DIRS.filter(d => {
+        const nx = fromHead.x + d.x;
+        const ny = fromHead.y + d.y;
+        if (!isPlayableCell(nx, ny)) return false;
+        if (nx === tail.x && ny === tail.y) return true;
+        return !hitsSnake(nx, ny);
+      }));
+      return candidates.length > 0 ? candidates[0] : null;
+    }
+
+    function pickChaosDir(fromHead, currentDir) {
+      const tail = snake[snake.length - 1];
+      const candidates = shuffle(ALL_DIRS.filter(d => {
+        if (d.x === -currentDir.x && d.y === -currentDir.y) return false;
         const nx = fromHead.x + d.x;
         const ny = fromHead.y + d.y;
         if (!isPlayableCell(nx, ny)) return false;
@@ -1041,6 +1059,16 @@
           spawnParticles(snake[0].x, snake[0].y, "#a78bfa", 8);
         }
         postBounceRandomTurnAt = Date.now() + BOUNCE_RANDOM_TURN_INTERVAL_MS;
+      }
+
+      // If player leaves snake unattended, add occasional safe random turns.
+      if (Date.now() - lastManualControlAt > CHAOS_IDLE_MS && Math.random() < CHAOS_TURN_CHANCE) {
+        const chaos = pickChaosDir(snake[0], dir);
+        if (chaos) {
+          dir = chaos;
+          qDir = { ...dir };
+          spawnParticles(snake[0].x, snake[0].y, "#f472b6", 6, 1.05, 0.2, 0);
+        }
       }
 
       let head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
