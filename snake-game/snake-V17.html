@@ -293,7 +293,7 @@
     </div>
 
     <p class="hint">
-      <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp; <kbd>Space</kbd> pause
+      <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp; <kbd>F</kbd> shoot &nbsp;·&nbsp; <kbd>Space</kbd> pause
       <label><input id="saveHiToggle" type="checkbox" checked /> Save HI</label>
       <input id="playerName" type="text" maxlength="20" placeholder="Player name" />
     </p>
@@ -332,6 +332,18 @@
     const FIRST_EGG_DELAY_MS = 10000;
     const EGG_RESPAWN_MIN_MS = 10000;
     const EGG_RESPAWN_MAX_MS = 15000;
+    const FLOWER_SIZE = 2;
+    const FLOWER_VISIBLE_MS = 5000;
+    const FLOWER_RESPAWN_MIN_MS = 8000;
+    const FLOWER_RESPAWN_MAX_MS = 12000;
+    const FLOWER_TRIANGLE_MS = 5000;
+    const GUN_SIZE = 3;
+    const GUN_VISIBLE_MS = 5000;
+    const GUN_RESPAWN_MS = 20000;
+    const PLAYGROUND_GROW_INTERVAL_MS = 15000;
+    const PLAYGROUND_GROWTH = 0.1;
+    const PLAYGROUND_MAX_MULTIPLIER = 2;
+    const PLAYGROUND_REDUCE_FACTOR = 0.5;
     const HELPER_SNAKE_COUNT = 5;
     const HELPER_SNAKE_LENGTH = 5;
     const HELPER_LIFETIME_MS = 10000;
@@ -350,9 +362,25 @@
     let postBounceRandomTurnAt = 0;
     let medkit = null;
     let egg = null;
+    let flower = null;
+    let gunItem = null;
     let helperSnakes = [];
     let helperMoveToggle = false;
     let nextEggSpawnAt = 0;
+    let nextFlowerSpawnAt = 0;
+    let nextGunSpawnAt = 0;
+    let triangleModeUntil = 0;
+    let hasGun = false;
+    let bullets = [];
+    let nextPlaygroundResizeAt = 0;
+
+    const HELPER_PALETTE = [
+      { body: "#38bdf8", head: "#7dd3fc" },
+      { body: "#f97316", head: "#fdba74" },
+      { body: "#22c55e", head: "#86efac" },
+      { body: "#a855f7", head: "#d8b4fe" },
+      { body: "#e11d48", head: "#fda4af" }
+    ];
 
     /* ── Particles ─────────────────────────────────── */
     // Spawn radial particles around a board cell for hit/eat effects.
@@ -452,6 +480,13 @@
     function growFieldBy(percent) {
       gridSize = Math.max(gridSize + 1, Math.round(gridSize * (1 + percent)));
       tileSize = board.width / gridSize;
+      clampEntitiesToGrid();
+    }
+
+    function shrinkFieldBy(percent) {
+      gridSize = Math.max(BASE_GRID_SIZE, Math.round(gridSize * (1 - percent)));
+      tileSize = board.width / gridSize;
+      clampEntitiesToGrid();
     }
 
     // Check whether a board cell is within the 2x2 ambulance footprint.
@@ -466,6 +501,16 @@
       return x >= egg.x && x < egg.x + EGG_SIZE && y >= egg.y && y < egg.y + EGG_SIZE;
     }
 
+    function isCellInsideFlower(x, y) {
+      if (!flower) return false;
+      return x >= flower.x && x < flower.x + FLOWER_SIZE && y >= flower.y && y < flower.y + FLOWER_SIZE;
+    }
+
+    function isCellInsideGun(x, y) {
+      if (!gunItem) return false;
+      return x >= gunItem.x && x < gunItem.x + GUN_SIZE && y >= gunItem.y && y < gunItem.y + GUN_SIZE;
+    }
+
     function isCellOccupiedByHelpers(x, y) {
       return helperSnakes.some(h => h.segments.some(s => s.x === x && s.y === y));
     }
@@ -474,13 +519,47 @@
       return min + Math.floor(Math.random() * (max - min + 1));
     }
 
+    function triangleActive() {
+      return Date.now() < triangleModeUntil;
+    }
+
+    function inTriangle(x, y) {
+      const center = (gridSize - 1) / 2;
+      const maxHalf = (gridSize - 1) / 2;
+      const half = (y / Math.max(1, gridSize - 1)) * maxHalf;
+      return x >= Math.ceil(center - half) && x <= Math.floor(center + half);
+    }
+
+    function isPlayableCell(x, y) {
+      if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) return false;
+      if (triangleActive() && !inTriangle(x, y)) return false;
+      return true;
+    }
+
+    function clampPos(p) {
+      p.x = Math.max(0, Math.min(gridSize - 1, p.x));
+      p.y = Math.max(0, Math.min(gridSize - 1, p.y));
+      return p;
+    }
+
+    function clampEntitiesToGrid() {
+      snake.forEach(clampPos);
+      foods.forEach(clampPos);
+      helperSnakes.forEach(h => h.segments.forEach(clampPos));
+      bullets = bullets.filter(b => isPlayableCell(Math.round(b.x), Math.round(b.y)));
+      if (medkit) { medkit.x = Math.min(medkit.x, gridSize - AMBULANCE_SIZE); medkit.y = Math.min(medkit.y, gridSize - AMBULANCE_SIZE); }
+      if (egg) { egg.x = Math.min(egg.x, gridSize - EGG_SIZE); egg.y = Math.min(egg.y, gridSize - EGG_SIZE); }
+      if (flower) { flower.x = Math.min(flower.x, gridSize - FLOWER_SIZE); flower.y = Math.min(flower.y, gridSize - FLOWER_SIZE); }
+      if (gunItem) { gunItem.x = Math.min(gunItem.x, gridSize - GUN_SIZE); gunItem.y = Math.min(gunItem.y, gridSize - GUN_SIZE); }
+    }
+
     // Place one apple on a free cell.
     function placeOneFood() {
       let tries = 0;
       while (tries < 400) {
         const f = randCell();
         const overlapFood = foods.some(a => a.x === f.x && a.y === f.y);
-        if (!snake.some(s => s.x === f.x && s.y === f.y) && !overlapFood && !isCellInsideMedkit(f.x, f.y) && !isCellInsideEgg(f.x, f.y) && !isCellOccupiedByHelpers(f.x, f.y)) {
+        if (!snake.some(s => s.x === f.x && s.y === f.y) && !overlapFood && !isCellInsideMedkit(f.x, f.y) && !isCellInsideEgg(f.x, f.y) && !isCellInsideFlower(f.x, f.y) && !isCellInsideGun(f.x, f.y) && !isCellOccupiedByHelpers(f.x, f.y) && isPlayableCell(f.x, f.y)) {
           foods.push({ x: f.x, y: f.y });
           return;
         }
@@ -503,7 +582,10 @@
       if (foods.some(a => a.x === x && a.y === y)) return false;
       if (isCellInsideMedkit(x, y)) return false;
       if (isCellInsideEgg(x, y)) return false;
+      if (isCellInsideFlower(x, y)) return false;
+      if (isCellInsideGun(x, y)) return false;
       if (isCellOccupiedByHelpers(x, y)) return false;
+      if (!isPlayableCell(x, y)) return false;
       return true;
     }
 
@@ -544,6 +626,78 @@
       }
     }
 
+    function placeFlower() {
+      let tries = 0;
+      while (tries < 400) {
+        const c = {
+          x: Math.floor(Math.random() * (gridSize - FLOWER_SIZE + 1)),
+          y: Math.floor(Math.random() * (gridSize - FLOWER_SIZE + 1))
+        };
+        let ok = true;
+        for (let dx = 0; dx < FLOWER_SIZE && ok; dx++) {
+          for (let dy = 0; dy < FLOWER_SIZE; dy++) {
+            if (!isFreeCell(c.x + dx, c.y + dy)) { ok = false; break; }
+          }
+        }
+        if (ok) {
+          flower = { x: c.x, y: c.y, expiresAt: Date.now() + FLOWER_VISIBLE_MS };
+          return;
+        }
+        tries++;
+      }
+    }
+
+    function maybeSpawnFlower() {
+      if (flower) return;
+      if (nextFlowerSpawnAt && Date.now() >= nextFlowerSpawnAt) {
+        placeFlower();
+        nextFlowerSpawnAt = 0;
+      }
+    }
+
+    function clearExpiredFlower() {
+      if (flower && Date.now() > flower.expiresAt) {
+        flower = null;
+        nextFlowerSpawnAt = Date.now() + randomMs(FLOWER_RESPAWN_MIN_MS, FLOWER_RESPAWN_MAX_MS);
+      }
+    }
+
+    function placeGun() {
+      let tries = 0;
+      while (tries < 400) {
+        const c = {
+          x: Math.floor(Math.random() * (gridSize - GUN_SIZE + 1)),
+          y: Math.floor(Math.random() * (gridSize - GUN_SIZE + 1))
+        };
+        let ok = true;
+        for (let dx = 0; dx < GUN_SIZE && ok; dx++) {
+          for (let dy = 0; dy < GUN_SIZE; dy++) {
+            if (!isFreeCell(c.x + dx, c.y + dy)) { ok = false; break; }
+          }
+        }
+        if (ok) {
+          gunItem = { x: c.x, y: c.y, expiresAt: Date.now() + GUN_VISIBLE_MS };
+          return;
+        }
+        tries++;
+      }
+    }
+
+    function maybeSpawnGun() {
+      if (gunItem) return;
+      if (nextGunSpawnAt && Date.now() >= nextGunSpawnAt) {
+        placeGun();
+        nextGunSpawnAt = 0;
+      }
+    }
+
+    function clearExpiredGun() {
+      if (gunItem && Date.now() > gunItem.expiresAt) {
+        gunItem = null;
+        nextGunSpawnAt = Date.now() + GUN_RESPAWN_MS;
+      }
+    }
+
     function findNearestFood(from) {
       if (foods.length === 0) return null;
       let best = foods[0];
@@ -566,7 +720,7 @@
       for (const d of options) {
         const nx = head.x + d.x;
         const ny = head.y + d.y;
-        if (!inBounds(nx, ny)) continue;
+        if (!isPlayableCell(nx, ny)) continue;
         const hitsPlayer = snake.some(s => s.x === nx && s.y === ny);
         const hitsHelper = helper.segments.some((s, idx) => idx < helper.segments.length - 1 && s.x === nx && s.y === ny);
         if (hitsPlayer || hitsHelper || isCellInsideMedkit(nx, ny) || isCellInsideEgg(nx, ny)) continue;
@@ -591,7 +745,7 @@
         helper.dir = findHelperDir(helper);
         const head = helper.segments[0];
         const next = { x: head.x + helper.dir.x, y: head.y + helper.dir.y };
-        if (!inBounds(next.x, next.y)) continue;
+        if (!isPlayableCell(next.x, next.y)) continue;
         helper.segments.unshift(next);
         helper.segments.pop();
 
@@ -620,10 +774,12 @@
           segments.push({ x: sx, y: sy });
         }
         if (ok) {
+          const palette = HELPER_PALETTE[helperSnakes.length % HELPER_PALETTE.length];
           helperSnakes.push({
             segments,
             dir: { ...dirCandidate },
-            expiresAt: Date.now() + HELPER_LIFETIME_MS
+            expiresAt: Date.now() + HELPER_LIFETIME_MS,
+            colors: palette
           });
           return;
         }
@@ -633,6 +789,54 @@
 
     function spawnHelperSnakes(count = HELPER_SNAKE_COUNT) {
       for (let i = 0; i < count; i++) spawnOneHelperSnake();
+    }
+
+    function shoot() {
+      if (!hasGun || dead || paused) return;
+      const head = snake[0];
+      bullets.push({
+        x: head.x + dir.x * 0.6,
+        y: head.y + dir.y * 0.6,
+        dx: dir.x,
+        dy: dir.y
+      });
+    }
+
+    function updateBullets() {
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.x += b.dx;
+        b.y += b.dy;
+        const cx = Math.round(b.x);
+        const cy = Math.round(b.y);
+        if (!isPlayableCell(cx, cy)) {
+          bullets.splice(i, 1);
+          continue;
+        }
+        let hitHelper = -1;
+        for (let h = 0; h < helperSnakes.length; h++) {
+          if (helperSnakes[h].segments.some(s => s.x === cx && s.y === cy)) {
+            hitHelper = h;
+            break;
+          }
+        }
+        if (hitHelper >= 0) {
+          const head = helperSnakes[hitHelper].segments[0];
+          spawnParticles(head.x, head.y, "#f43f5e", 28, 2.2, 2, -0.008);
+          helperSnakes.splice(hitHelper, 1);
+          bullets.splice(i, 1);
+        }
+      }
+    }
+
+    function maybeResizePlayground() {
+      if (!nextPlaygroundResizeAt || Date.now() < nextPlaygroundResizeAt) return;
+      if (gridSize >= BASE_GRID_SIZE * PLAYGROUND_MAX_MULTIPLIER) {
+        shrinkFieldBy(PLAYGROUND_REDUCE_FACTOR);
+      } else {
+        growFieldBy(PLAYGROUND_GROWTH);
+      }
+      nextPlaygroundResizeAt = Date.now() + PLAYGROUND_GROW_INTERVAL_MS;
     }
 
     // Spawn the slowdown medkit on a free cell with expiration timestamp.
@@ -724,8 +928,16 @@
       foods = [];
       medkit = null;
       egg = null;
+      flower = null;
+      gunItem = null;
       helperSnakes = [];
+      hasGun = false;
+      bullets = [];
+      triangleModeUntil = 0;
       nextEggSpawnAt = Date.now() + FIRST_EGG_DELAY_MS;
+      nextFlowerSpawnAt = Date.now() + randomMs(FLOWER_RESPAWN_MIN_MS, FLOWER_RESPAWN_MAX_MS);
+      nextGunSpawnAt = Date.now() + GUN_RESPAWN_MS;
+      nextPlaygroundResizeAt = Date.now() + PLAYGROUND_GROW_INTERVAL_MS;
       placeOneFood();
       overlay.classList.remove("visible");
       updateUI();
@@ -771,7 +983,7 @@
       const candidates = shuffle(ALL_DIRS.filter(d => {
         const nx = fromHead.x + d.x;
         const ny = fromHead.y + d.y;
-        if (!inBounds(nx, ny)) return false;
+        if (!isPlayableCell(nx, ny)) return false;
         if (nx === tail.x && ny === tail.y) return true;
         return !hitsSnake(nx, ny);
       }));
@@ -783,8 +995,12 @@
       if (paused || dead) return;
       clearExpiredMedkit();
       clearExpiredEgg();
+      clearExpiredFlower();
+      clearExpiredGun();
+      maybeResizePlayground();
       helperMoveToggle = !helperMoveToggle;
       if (helperMoveToggle) updateHelperSnakes();
+      updateBullets();
       dir = qDir;
 
       /* ── After wall bounce: random direction every 4 seconds ── */
@@ -801,7 +1017,7 @@
       let head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
 
       /* ── Wall bounce ─────────────────────────────── */
-      if (!inBounds(head.x, head.y)) {
+      if (!isPlayableCell(head.x, head.y)) {
         spawnParticles(
           Math.max(0, Math.min(gridSize - 1, head.x)),
           Math.max(0, Math.min(gridSize - 1, head.y)),
@@ -892,8 +1108,30 @@
         growFieldBy(0.2);
       }
 
+      if (flower && isCellInsideFlower(head.x, head.y)) {
+        const fx = flower.x + FLOWER_SIZE / 2;
+        const fy = flower.y + FLOWER_SIZE / 2;
+        spawnParticles(fx, fy, "#f472b6", 26, 1.8, 1.3, -0.006);
+        showTextPop(fx, fy, "TRIANGLE", "#f472b6");
+        triangleModeUntil = Date.now() + FLOWER_TRIANGLE_MS;
+        flower = null;
+        nextFlowerSpawnAt = Date.now() + randomMs(FLOWER_RESPAWN_MIN_MS, FLOWER_RESPAWN_MAX_MS);
+      }
+
+      if (gunItem && isCellInsideGun(head.x, head.y)) {
+        const gx = gunItem.x + GUN_SIZE / 2;
+        const gy = gunItem.y + GUN_SIZE / 2;
+        spawnParticles(gx, gy, "#eab308", 22, 1.6, 1.1, -0.005);
+        showTextPop(gx, gy, "GUN", "#eab308");
+        hasGun = true;
+        gunItem = null;
+        nextGunSpawnAt = Date.now() + GUN_RESPAWN_MS;
+      }
+
       maybeSpawnMedkit();
       maybeSpawnEgg();
+      maybeSpawnFlower();
+      maybeSpawnGun();
       updateUI();
     }
 
@@ -957,6 +1195,49 @@
       ctx.restore();
     }
 
+    function drawFlower() {
+      if (!flower) return;
+      const x = flower.x * tileSize + 2;
+      const y = flower.y * tileSize + 2;
+      const w = tileSize * FLOWER_SIZE - 4;
+      const h = tileSize * FLOWER_SIZE - 4;
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+      const r = Math.min(w, h) * 0.16;
+      ctx.save();
+      ctx.shadowColor = "rgba(244,114,182,0.45)";
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = "#f472b6";
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI * 2 * i) / 6;
+        ctx.beginPath();
+        ctx.arc(cx + Math.cos(a) * w * 0.24, cy + Math.sin(a) * h * 0.24, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = "#fde68a";
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 1.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawGun() {
+      if (!gunItem) return;
+      const x = gunItem.x * tileSize + 2;
+      const y = gunItem.y * tileSize + 2;
+      const w = tileSize * GUN_SIZE - 4;
+      const h = tileSize * GUN_SIZE - 4;
+      ctx.save();
+      ctx.fillStyle = "#d1d5db";
+      ctx.fillRect(x + w * 0.18, y + h * 0.4, w * 0.55, h * 0.18);
+      ctx.fillRect(x + w * 0.58, y + h * 0.28, w * 0.22, h * 0.12);
+      ctx.fillStyle = "#9ca3af";
+      ctx.fillRect(x + w * 0.28, y + h * 0.56, w * 0.16, h * 0.24);
+      ctx.fillStyle = "#f59e0b";
+      ctx.fillRect(x + w * 0.78, y + h * 0.32, w * 0.08, h * 0.04);
+      ctx.restore();
+    }
+
     // Draw ambulance slowdown item.
     function drawMedkit() {
       if (!medkit) return;
@@ -1009,16 +1290,45 @@
           const cy = seg.y * tileSize + tileSize / 2;
           const radius = Math.max(3, (tileSize / 2 - 2) * (1 - i * 0.08));
           ctx.save();
-          ctx.fillStyle = i === 0 ? "#67e8f9" : "#0891b2";
+          ctx.fillStyle = i === 0 ? helper.colors.head : helper.colors.body;
           if (i === 0) {
-            ctx.shadowColor = "rgba(103,232,249,0.45)";
+            ctx.shadowColor = helper.colors.head;
             ctx.shadowBlur = 10;
           }
           ctx.beginPath();
           ctx.arc(cx, cy, radius, 0, Math.PI * 2);
           ctx.fill();
+          if (i === 0) {
+            const eye = Math.max(1.5, radius * 0.23);
+            const eyeOff = radius * 0.35;
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(cx - eyeOff, cy - eyeOff * 0.2, eye, 0, Math.PI * 2);
+            ctx.arc(cx + eyeOff, cy - eyeOff * 0.2, eye, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#111827";
+            ctx.beginPath();
+            ctx.arc(cx - eyeOff + helper.dir.x, cy - eyeOff * 0.2 + helper.dir.y, eye * 0.45, 0, Math.PI * 2);
+            ctx.arc(cx + eyeOff + helper.dir.x, cy - eyeOff * 0.2 + helper.dir.y, eye * 0.45, 0, Math.PI * 2);
+            ctx.fill();
+          }
           ctx.restore();
         });
+      });
+    }
+
+    function drawBullets() {
+      bullets.forEach(b => {
+        const x = b.x * tileSize + tileSize / 2;
+        const y = b.y * tileSize + tileSize / 2;
+        ctx.save();
+        ctx.fillStyle = "#fef08a";
+        ctx.shadowColor = "#facc15";
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(2, tileSize * 0.1), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
       });
     }
 
@@ -1142,11 +1452,26 @@
       drawGrid();
       drawFood();
       drawEgg();
+      drawFlower();
+      drawGun();
       drawMedkit();
       drawHelperSnakes();
       drawSnake();
+      drawBullets();
       updateParticles();
       drawParticles();
+
+      if (triangleActive()) {
+        ctx.save();
+        ctx.fillStyle = "rgba(244,114,182,0.08)";
+        ctx.beginPath();
+        ctx.moveTo(board.width / 2, 0);
+        ctx.lineTo(board.width, board.height);
+        ctx.lineTo(0, board.height);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
 
       if (flashPower > 0.01) {
         ctx.save();
@@ -1200,6 +1525,7 @@
       if (k === "arrowdown"  || k === "s") { queueDir({ x: 0, y: 1  }); e.preventDefault(); }
       if (k === "arrowleft"  || k === "a") { queueDir({ x: -1, y: 0 }); e.preventDefault(); }
       if (k === "arrowright"  || k === "d") { queueDir({ x: 1, y: 0  }); e.preventDefault(); }
+      if (k === "f") { shoot(); e.preventDefault(); }
       if (k === " ") {
         e.preventDefault();
         if (!dead) { paused = !paused; }
