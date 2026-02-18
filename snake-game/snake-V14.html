@@ -348,7 +348,7 @@
     let medkit = null;
     let egg = null;
     let eggsEaten = 0;
-    let nextEggSpawnAtEggs = 1;
+    let nextEggSpawnAtEggs = EGG_SPAWN_EVERY_EGGS;
     let helperSnakes = [];
     let helperMoveToggle = false;
 
@@ -526,6 +526,7 @@
       if (egg) return;
       if (eggsEaten >= nextEggSpawnAtEggs) {
         placeEgg();
+        nextEggSpawnAtEggs += EGG_SPAWN_EVERY_EGGS;
       }
     }
 
@@ -700,7 +701,7 @@
       score = 0;
       applesEaten = 0;
       eggsEaten = 0;
-      nextEggSpawnAtEggs = 1;
+      nextEggSpawnAtEggs = EGG_SPAWN_EVERY_EGGS;
       stepMs = BASE_STEP_MS;
       paused = false;
       dead = false;
@@ -713,6 +714,7 @@
       egg = null;
       helperSnakes = [];
       placeOneFood();
+      placeEgg();
       overlay.classList.remove("visible");
       updateUI();
       clearInterval(loopId);
@@ -872,7 +874,6 @@
         showTextPop(ex, ey, "EGG!", "#fde047");
         triggerFlash(0.35);
         eggsEaten++;
-        nextEggSpawnAtEggs = eggsEaten + EGG_SPAWN_EVERY_EGGS;
         egg = null;
         spawnHelperSnakes(HELPER_SNAKE_COUNT);
         growFieldBy(0.2);
