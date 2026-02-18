@@ -328,7 +328,9 @@
     const APPLE_SPAWN_INTERVAL_MS = 5000;
     const BOUNCE_RANDOM_TURN_INTERVAL_MS = 4000;
     const EGG_SIZE = 4;
-    const EGG_SPAWN_EVERY_EGGS = 10;
+    const EGG_VISIBLE_MS = 5000;
+    const EGG_RESPAWN_MIN_MS = 10000;
+    const EGG_RESPAWN_MAX_MS = 15000;
     const HELPER_SNAKE_COUNT = 5;
     const HELPER_SNAKE_LENGTH = 5;
     const HELPER_LIFETIME_MS = 10000;
@@ -347,10 +349,9 @@
     let postBounceRandomTurnAt = 0;
     let medkit = null;
     let egg = null;
-    let eggsEaten = 0;
-    let nextEggSpawnAtEggs = EGG_SPAWN_EVERY_EGGS;
     let helperSnakes = [];
     let helperMoveToggle = false;
+    let nextEggSpawnAt = 0;
 
     /* ── Particles ─────────────────────────────────── */
     // Spawn radial particles around a board cell for hit/eat effects.
@@ -468,6 +469,10 @@
       return helperSnakes.some(h => h.segments.some(s => s.x === x && s.y === y));
     }
 
+    function randomMs(min, max) {
+      return min + Math.floor(Math.random() * (max - min + 1));
+    }
+
     // Place one apple on a free cell.
     function placeOneFood() {
       let tries = 0;
@@ -516,6 +521,7 @@
         }
         if (ok) {
           egg = { x: c.x, y: c.y };
+          egg.expiresAt = Date.now() + EGG_VISIBLE_MS;
           return;
         }
         tries++;
@@ -524,9 +530,16 @@
 
     function maybeSpawnEgg() {
       if (egg) return;
-      if (eggsEaten >= nextEggSpawnAtEggs) {
+      if (nextEggSpawnAt && Date.now() >= nextEggSpawnAt) {
         placeEgg();
-        nextEggSpawnAtEggs += EGG_SPAWN_EVERY_EGGS;
+        nextEggSpawnAt = 0;
+      }
+    }
+
+    function clearExpiredEgg() {
+      if (egg && Date.now() > egg.expiresAt) {
+        egg = null;
+        nextEggSpawnAt = Date.now() + randomMs(EGG_RESPAWN_MIN_MS, EGG_RESPAWN_MAX_MS);
       }
     }
 
@@ -700,8 +713,6 @@
       qDir = { ...dir };
       score = 0;
       applesEaten = 0;
-      eggsEaten = 0;
-      nextEggSpawnAtEggs = EGG_SPAWN_EVERY_EGGS;
       stepMs = BASE_STEP_MS;
       paused = false;
       dead = false;
@@ -713,6 +724,7 @@
       medkit = null;
       egg = null;
       helperSnakes = [];
+      nextEggSpawnAt = 0;
       placeOneFood();
       placeEgg();
       overlay.classList.remove("visible");
@@ -770,6 +782,7 @@
     function step() {
       if (paused || dead) return;
       clearExpiredMedkit();
+      clearExpiredEgg();
       helperMoveToggle = !helperMoveToggle;
       if (helperMoveToggle) updateHelperSnakes();
       dir = qDir;
@@ -873,9 +886,9 @@
         spawnParticles(ex, ey, "#fde047", 34, 2.2, 2, -0.007);
         showTextPop(ex, ey, "EGG!", "#fde047");
         triggerFlash(0.35);
-        eggsEaten++;
         egg = null;
         spawnHelperSnakes(HELPER_SNAKE_COUNT);
+        nextEggSpawnAt = Date.now() + HELPER_LIFETIME_MS + randomMs(EGG_RESPAWN_MIN_MS, EGG_RESPAWN_MAX_MS);
         growFieldBy(0.2);
       }
 
