@@ -96,8 +96,15 @@
     const gridSize = 20;
     const tileSize = board.width / gridSize;
     const speedMs = 120;
+    const rootStyles = getComputedStyle(document.documentElement);
+    const colors = {
+      food: rootStyles.getPropertyValue("--food").trim(),
+      snake: rootStyles.getPropertyValue("--snake").trim(),
+      snakeHead: "#4ade80"
+    };
 
     let snake;
+    let snakeCells;
     let direction;
     let queuedDirection;
     let food;
@@ -105,6 +112,10 @@
     let gameLoopId;
     let isPaused;
     let isGameOver;
+
+    function cellKey(cell) {
+      return `${cell.x},${cell.y}`;
+    }
 
     function randomCell() {
       return {
@@ -115,7 +126,7 @@
 
     function placeFood() {
       let nextFood = randomCell();
-      while (snake.some((part) => part.x === nextFood.x && part.y === nextFood.y)) {
+      while (snakeCells.has(cellKey(nextFood))) {
         nextFood = randomCell();
       }
       food = nextFood;
@@ -127,6 +138,7 @@
         { x: 9, y: 10 },
         { x: 8, y: 10 }
       ];
+      snakeCells = new Set(snake.map(cellKey));
       direction = { x: 1, y: 0 };
       queuedDirection = { ...direction };
       score = 0;
@@ -172,15 +184,45 @@
 
       direction = queuedDirection;
 
-      const head = {
-        x: snake[0].x + direction.x,
-        y: snake[0].y + direction.y
+      let nextDirection = { ...direction };
+      let head = {
+        x: snake[0].x + nextDirection.x,
+        y: snake[0].y + nextDirection.y
       };
 
-      const hitWall = head.x < 0 || head.x >= gridSize || head.y < 0 || head.y >= gridSize;
-      const hitSelf = snake.some((part) => part.x === head.x && part.y === head.y);
+      const hitHorizontalWall = head.x < 0 || head.x >= gridSize;
+      const hitVerticalWall = head.y < 0 || head.y >= gridSize;
 
-      if (hitWall || hitSelf) {
+      if (hitHorizontalWall || hitVerticalWall) {
+        snake.reverse();
+        if (hitHorizontalWall) {
+          nextDirection.x *= -1;
+        }
+        if (hitVerticalWall) {
+          nextDirection.y *= -1;
+        }
+        direction = nextDirection;
+        queuedDirection = { ...nextDirection };
+        head = {
+          x: snake[0].x + nextDirection.x,
+          y: snake[0].y + nextDirection.y
+        };
+      }
+
+      const ateFood = head.x === food.x && head.y === food.y;
+      const tail = snake[snake.length - 1];
+      const tailKey = cellKey(tail);
+
+      if (!ateFood) {
+        snakeCells.delete(tailKey);
+      }
+
+      const hitSelf = snakeCells.has(cellKey(head));
+
+      if (hitSelf) {
+        if (!ateFood) {
+          snakeCells.add(tailKey);
+        }
         isGameOver = true;
         clearInterval(gameLoopId);
         updateStatus();
@@ -189,8 +231,8 @@
       }
 
       snake.unshift(head);
+      snakeCells.add(cellKey(head));
 
-      const ateFood = head.x === food.x && head.y === food.y;
       if (ateFood) {
         score += 1;
         placeFood();
@@ -228,14 +270,14 @@
       ctx.clearRect(0, 0, board.width, board.height);
       drawGrid();
 
-      drawCell(food, getComputedStyle(document.documentElement).getPropertyValue("--food").trim());
+      drawCell(food, colors.food);
 
       snake.forEach((part, index) => {
         drawCell(
           part,
           index === 0
-            ? "#4ade80"
-            : getComputedStyle(document.documentElement).getPropertyValue("--snake").trim()
+            ? colors.snakeHead
+            : colors.snake
         );
       });
     }
