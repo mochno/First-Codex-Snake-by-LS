@@ -22,6 +22,7 @@
           <li><span class="icon icon-triangle" aria-hidden="true"></span><span>During active triangle phase, you must stay inside the triangle.</span></li>
           <li><span class="icon icon-gun" aria-hidden="true"></span><span>Gun enables mouth-shooting in movement direction; bullets can destroy helper snakes.</span></li>
           <li><span class="icon icon-ambulance" aria-hidden="true"></span><span>Ambulance slows snake movement when collected.</span></li>
+          <li><span class="icon icon-task" aria-hidden="true"></span><span>Complete rotating mini-tasks for score boosts and chain quick apple combos for bonus points.</span></li>
           <li><span>Flower and gun disappear if not collected, then reappear again.</span></li>
         </ul>
       </section>
@@ -37,6 +38,10 @@
             </div>
           </div>
           <button id="restartBtn" type="button">Restart</button>
+        </div>
+        <div class="challenge-bar" aria-live="polite">
+          <strong id="challengeTitle">Task: Apple Sprint</strong>
+          <span id="challengeProgress">0 / 8</span>
         </div>
 
         <div class="canvas-wrap" id="canvasWrap">
