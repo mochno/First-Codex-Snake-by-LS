@@ -12,6 +12,8 @@
     const playerNameInput = document.getElementById("playerName");
     const joystickToggle = document.getElementById("joystickToggle");
     const joystick = document.getElementById("joystick");
+    const challengeTitleEl = document.getElementById("challengeTitle");
+    const challengeProgressEl = document.getElementById("challengeProgress");
 
     const BASE_GRID_SIZE = 20;
     let gridSize = BASE_GRID_SIZE;
@@ -52,6 +54,17 @@
     const HELPER_LIFETIME_MS = 10000;
     const HI_SCORE_KEY = "snake_neon_hi_score";
     const HI_NAME_KEY = "snake_neon_hi_name";
+    const COMBO_WINDOW_MS = 2800;
+    const COMBO_CHAIN_START = 3;
+    const CHALLENGE_REWARD_POINTS = 5;
+    const CHALLENGE_TEMPLATES = [
+      { id: "apple_rush", label: "Task: Apple Sprint", target: 8, metric: "apples" },
+      { id: "medic_run", label: "Task: Ambulance Pickup", target: 1, metric: "medkits" },
+      { id: "helper_hunter", label: "Task: Helper Hunter", target: 2, metric: "helperHits" },
+      { id: "flower_touch", label: "Task: Petal Run", target: 1, metric: "flowers" },
+      { id: "egg_quest", label: "Task: Egg Rescue", target: 1, metric: "eggs" },
+      { id: "survive", label: "Task: Stay Alive", target: 45, metric: "seconds" }
+    ];
 
     let snake, dir, qDir, foods = [], score, hiScore = 0, hiName = "Player";
     let applesEaten = 0;
@@ -78,6 +91,11 @@
     let nextPlaygroundResizeAt = 0;
     let lastManualControlAt = 0;
     let joystickEnabled = false;
+    let comboStreak = 0;
+    let lastAppleAt = 0;
+    let challenge = null;
+    let challengeProgress = 0;
+    let gameStartedAt = 0;
 
     const HELPER_PALETTE = [
       { body: "#38bdf8", head: "#7dd3fc" },
@@ -136,10 +154,12 @@
 
     /* ── Floating +1 ───────────────────────────────── */
     // Show floating "+1" text at a given board cell.
-    function showScorePop(cellX, cellY) {
+    function showScorePop(cellX, cellY, text = "+1", color = "#22c55e") {
       const pop = document.createElement("div");
       pop.className = "score-pop";
-      pop.textContent = "+1";
+      pop.textContent = text;
+      pop.style.color = color;
+      pop.style.textShadow = `0 0 8px ${color}`;
       const rect = board.getBoundingClientRect();
       const scale = rect.width / board.width;
       pop.style.left = (cellX * tileSize + tileSize / 2) * scale + "px";
@@ -545,6 +565,7 @@
           spawnParticles(head.x, head.y, "#f43f5e", 28, 2.2, 2, -0.008);
           helperSnakes.splice(hitHelper, 1);
           bullets.splice(i, 1);
+          advanceChallenge("helperHits", 1, head.x, head.y);
         }
       }
     }
@@ -627,6 +648,44 @@
       return name ? name.slice(0, 20) : "Player";
     }
 
+    function startNewChallenge() {
+      const candidates = CHALLENGE_TEMPLATES.filter(c => !challenge || c.id !== challenge.id);
+      challenge = { ...candidates[Math.floor(Math.random() * candidates.length)] };
+      challengeProgress = 0;
+      refreshChallengeUI();
+    }
+
+    function refreshChallengeUI() {
+      if (!challenge || !challengeTitleEl || !challengeProgressEl) return;
+      challengeTitleEl.textContent = challenge.label;
+      challengeProgressEl.textContent = `${Math.floor(challengeProgress)} / ${challenge.target}`;
+    }
+
+    function completeChallenge(x, y) {
+      score += CHALLENGE_REWARD_POINTS;
+      showTextPop(x, y, `TASK +${CHALLENGE_REWARD_POINTS}`, "#38bdf8");
+      triggerFlash(0.28);
+      startNewChallenge();
+      updateUI();
+    }
+
+    function advanceChallenge(metric, amount, x, y) {
+      if (!challenge || challenge.metric !== metric || dead) return;
+      challengeProgress = Math.min(challenge.target, challengeProgress + amount);
+      refreshChallengeUI();
+      if (challengeProgress >= challenge.target) completeChallenge(x, y);
+    }
+
+    function updateTimedChallenge() {
+      if (!challenge || challenge.metric !== "seconds") return;
+      challengeProgress = Math.min(challenge.target, Math.floor((Date.now() - gameStartedAt) / 1000));
+      refreshChallengeUI();
+      if (challengeProgress >= challenge.target) {
+        const h = snake[0];
+        completeChallenge(h.x, h.y);
+      }
+    }
+
     /* ── Game logic ────────────────────────────────── */
     // Start a new game round with base speed and fresh state.
     function reset() {
@@ -660,7 +719,11 @@
       nextFlowerSpawnAt = Date.now() + randomMs(FLOWER_RESPAWN_MIN_MS, FLOWER_RESPAWN_MAX_MS);
       nextGunSpawnAt = Date.now() + GUN_RESPAWN_MS;
       nextPlaygroundResizeAt = Date.now() + PLAYGROUND_GROW_INTERVAL_MS;
+      comboStreak = 0;
+      lastAppleAt = 0;
+      gameStartedAt = Date.now();
       placeOneFood();
+      startNewChallenge();
       overlay.classList.remove("visible");
       updateUI();
       clearInterval(loopId);
@@ -678,6 +741,7 @@
       }
       hiEl.textContent = hiScore;
       hiNameEl.textContent = hiName;
+      refreshChallengeUI();
     }
 
     function opposite(a, b) { return a.x === -b.x && a.y === -b.y; }
@@ -733,6 +797,7 @@
       clearExpiredFlower();
       clearExpiredGun();
       maybeResizePlayground();
+      updateTimedChallenge();
       helperMoveToggle = !helperMoveToggle;
       if (helperMoveToggle) updateHelperSnakes();
       updateBullets();
@@ -807,14 +872,22 @@
       if (eatenFoodIndex >= 0) {
         const eaten = foods[eatenFoodIndex];
         foods.splice(eatenFoodIndex, 1);
-        score++;
+        const now = Date.now();
+        comboStreak = now - lastAppleAt <= COMBO_WINDOW_MS ? comboStreak + 1 : 1;
+        lastAppleAt = now;
+        const comboBonus = comboStreak >= COMBO_CHAIN_START ? Math.min(5, comboStreak - (COMBO_CHAIN_START - 1)) : 0;
+        score += 1 + comboBonus;
         applesEaten++;
         spawnParticles(eaten.x, eaten.y, "#4ade80", 30, 1.7, 1.5, -0.005);
         spawnParticles(eaten.x, eaten.y, "#facc15", 24, 2.1, 2.0, -0.004);
         spawnParticles(eaten.x, eaten.y, "#ffffff", 10, 2.5, 1.8, -0.008);
-        showScorePop(eaten.x, eaten.y);
+        showScorePop(eaten.x, eaten.y, comboBonus ? `+${1 + comboBonus}` : "+1", comboBonus ? "#facc15" : "#22c55e");
+        if (comboBonus) {
+          showTextPop(eaten.x, eaten.y, `COMBO x${comboStreak}`, "#facc15");
+        }
         triggerFlash(0.45);
         applyStepMs(stepMs * SPEEDUP_PER_APPLE);
+        advanceChallenge("apples", 1, eaten.x, eaten.y);
         if (applesEaten % APPLE_BONUS_THRESHOLD === 0) {
           const tail = snake[snake.length - 1];
           const bonusGrowth = Math.max(1, Math.round(snake.length * 0.1));
@@ -835,6 +908,7 @@
         showTextPop(mx, my, "SLOW", "#f87171");
         triggerFlash(0.22);
         applyStepMs(stepMs * SLOWDOWN_ON_MEDKIT);
+        advanceChallenge("medkits", 1, mx, my);
         medkit = null;
       }
 
@@ -848,6 +922,7 @@
         spawnHelperSnakes(HELPER_SNAKE_COUNT);
         nextEggSpawnAt = Date.now() + HELPER_LIFETIME_MS + randomMs(EGG_RESPAWN_MIN_MS, EGG_RESPAWN_MAX_MS);
         growFieldBy(0.2);
+        advanceChallenge("eggs", 1, ex, ey);
       }
 
       if (flower && isCellInsideFlower(head.x, head.y)) {
@@ -859,6 +934,7 @@
         triangleModeUntil = triangleBlinkUntil + FLOWER_TRIANGLE_ACTIVE_MS;
         flower = null;
         nextFlowerSpawnAt = Date.now() + randomMs(FLOWER_RESPAWN_MIN_MS, FLOWER_RESPAWN_MAX_MS);
+        advanceChallenge("flowers", 1, fx, fy);
       }
 
       if (gunItem && isCellInsideGun(head.x, head.y)) {
