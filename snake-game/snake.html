@@ -4,7 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Snake - Neon Edition</title>
+  <meta name="color-scheme" content="dark" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Outfit:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./snake.css" />
 </head>
@@ -14,16 +16,15 @@
       <section class="howto" aria-label="How to play">
         <strong>HOW TO</strong>
         <ul>
-          <li><span>Move with Arrow keys or W/A/S/D. Press <kbd>F</kbd> to shoot (after picking gun). Press <kbd>Space</kbd> to pause.</span></li>
-          <li><span class="icon icon-apple" aria-hidden="true"></span><span>Eat apples to score, speed up, and grow by +10% every 15 apples.</span></li>
-          <li><span class="icon icon-egg" aria-hidden="true"></span><span>Eat egg to spawn helper snakes and expand the map.</span></li>
-          <li><span class="icon icon-helper" aria-hidden="true"></span><span>Helper snakes chase apples, speed up gameplay, and vanish with explosion after 10s.</span></li>
-          <li><span class="icon icon-flower" aria-hidden="true"></span><span>Flower triggers triangle mode: 5s blinking prep, then 5s active triangle zone.</span></li>
-          <li><span class="icon icon-triangle" aria-hidden="true"></span><span>During active triangle phase, you must stay inside the triangle.</span></li>
-          <li><span class="icon icon-gun" aria-hidden="true"></span><span>Gun enables mouth-shooting in movement direction; bullets can destroy helper snakes.</span></li>
-          <li><span class="icon icon-ambulance" aria-hidden="true"></span><span>Ambulance slows snake movement when collected.</span></li>
-          <li><span class="icon icon-task" aria-hidden="true"></span><span>Complete rotating mini-tasks for score boosts and chain quick apple combos for bonus points.</span></li>
-          <li><span>Flower and gun disappear if not collected, then reappear again.</span></li>
+          <li>Move with Arrow keys or W/A/S/D. Press <kbd>F</kbd> to shoot after grabbing the gun, <kbd>Shift</kbd> to dash when dash power is active, and <kbd>Space</kbd> to pause.</li>
+          <li>Pick a mode: <strong>Classic</strong> keeps it cleaner, <strong>Chaos</strong> enables the full current rule set, and <strong>Survival</strong> is harsher but rewards staying alive.</li>
+          <li><span class="icon icon-apple" aria-hidden="true"></span>Quick apple chains build combo score. Every 15 apples still grows the snake by +10%.</li>
+          <li><span class="icon icon-egg" aria-hidden="true"></span>Eggs spawn helper snakes and expand the field. Shooting helpers now drops apples and bonus points.</li>
+          <li><span class="icon icon-flower" aria-hidden="true"></span>Flowers warn before triangle mode. Surviving the triangle pays out each second and gives a completion bonus.</li>
+          <li><span class="icon icon-gun" aria-hidden="true"></span>Gun enables mouth-shooting in movement direction.</li>
+          <li><span class="icon icon-ambulance" aria-hidden="true"></span>Ambulance slows the snake. Power crates rotate between shield, magnet, dash, and slow-time effects.</li>
+          <li><span class="icon icon-task" aria-hidden="true"></span>Complete rotating mini-tasks for extra points on top of combo and wave rewards.</li>
+          <li>Named wave events now spike the pace with helper rushes, harvest rounds, and triangle trials.</li>
         </ul>
       </section>
 
@@ -39,24 +40,56 @@
           </div>
           <button id="restartBtn" type="button">Restart</button>
         </div>
+
         <div class="challenge-bar" aria-live="polite">
           <strong id="challengeTitle">Task: Apple Sprint</strong>
           <span id="challengeProgress">0 / 8</span>
         </div>
 
+        <div class="control-strip">
+          <div class="mode-switch" role="group" aria-label="Game mode">
+            <button class="mode-btn" data-mode="classic" type="button">Classic</button>
+            <button class="mode-btn active" data-mode="chaos" type="button">Chaos</button>
+            <button class="mode-btn" data-mode="survival" type="button">Survival</button>
+          </div>
+
+          <div class="status-cards" aria-live="polite">
+            <div class="status-card">
+              <span>Combo</span>
+              <strong id="comboValue">0</strong>
+            </div>
+            <div class="status-card">
+              <span>Multiplier</span>
+              <strong id="multiplierValue">x1</strong>
+            </div>
+            <div class="status-card">
+              <span>Wave</span>
+              <strong id="waveValue">Calm</strong>
+            </div>
+            <div class="status-card">
+              <span>State</span>
+              <strong id="statusValue">Normal</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="timer-hud" id="timerHud" aria-live="polite"></div>
+
         <div class="canvas-wrap" id="canvasWrap">
           <canvas id="board" width="800" height="800" aria-label="Snake game board"></canvas>
-          <div class="overlay" id="overlay">
-            <h2>GAME OVER</h2>
+          <div class="event-banner" id="eventBanner" aria-live="polite"></div>
+          <div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="gameOverTitle">
+            <h2 id="gameOverTitle">GAME OVER</h2>
             <div class="final-score">Score: <span id="finalScore">0</span></div>
             <button id="overlayRestart" type="button">Play Again</button>
           </div>
         </div>
 
         <p class="hint">
-          <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp; <kbd>F</kbd> shoot &nbsp;·&nbsp; <kbd>Space</kbd> pause
+          <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; <kbd>F</kbd> shoot &nbsp;·&nbsp; <kbd>Shift</kbd> dash &nbsp;·&nbsp; <kbd>Space</kbd> pause
           <label><input id="saveHiToggle" type="checkbox" checked /> Save HI</label>
-          <input id="playerName" type="text" maxlength="20" placeholder="Player name" />
+          <label><input id="soundToggle" type="checkbox" checked /> Sound</label>
+          <label for="playerName"></label><input id="playerName" type="text" maxlength="20" placeholder="Player name" autocomplete="nickname" spellcheck="false" />
         </p>
 
         <div class="joystick-wrap" aria-label="Mobile controls">
